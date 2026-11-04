@@ -35,6 +35,8 @@ jobs:
           echo "$RUNNER_TEMP/databricks-cli" >> "$GITHUB_PATH"
       - name: Validate, deploy and test exact checkout
         env:
+          DATABRICKS_CONFIG_FILE: ${{ github.workspace }}/.github/databrickscfg
+          DATABRICKS_CONFIG_PROFILE: pairity-ci
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_AUTH_TYPE: ${{ secrets.DATABRICKS_AUTH_TYPE || 'oauth-m2m' }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_AUTH_TYPE == 'pat' && secrets.DATABRICKS_TOKEN || '' }}

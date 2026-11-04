@@ -194,3 +194,37 @@ def test_service_principal_auth_needs_no_pat_and_reports_missing_secret():
     assert "DATABRICKS_CLIENT_SECRET" in str(error.value)
     assert "DATABRICKS_TOKEN" not in str(error.value)
     assert "private-value" not in str(error.value)
+
+
+def test_workflow_uses_selective_scopes_in_cli_and_sdk(monkeypatch):
+    import yaml
+    from databricks.sdk import WorkspaceClient
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/databricks-free.yml").read_text())
+    step = next(s for s in workflow["jobs"]["deploy-and-test"]["steps"] if "env" in s)
+    env = step["env"]
+    config_file = env["DATABRICKS_CONFIG_FILE"].replace("${{ github.workspace }}", str(ROOT))
+    monkeypatch.setenv("DATABRICKS_CONFIG_FILE", config_file)
+    monkeypatch.setenv("DATABRICKS_CONFIG_PROFILE", env["DATABRICKS_CONFIG_PROFILE"])
+    from databricks.sdk.config import Config
+    from databricks.sdk.credentials_provider import credentials_strategy
+
+    @credentials_strategy("test", [])
+    def offline_auth(cfg):
+        return lambda: {}
+
+    monkeypatch.setattr(Config, "_resolve_host_metadata", lambda self: None)
+    # Avoid network authentication while exercising the real SDK profile loader.
+    client = WorkspaceClient(
+        host="https://example.databricks.com",
+        credentials_strategy=offline_auth,
+    )
+    assert set(client.config.get_scopes()) == {
+        "apps",
+        "bundle-deployments",
+        "databricks-connect",
+        "jobs",
+        "sql",
+        "unity-catalog",
+    }
+    assert "all-apis" not in client.config.get_scopes_as_string()
