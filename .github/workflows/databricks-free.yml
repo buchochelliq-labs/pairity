@@ -35,10 +35,11 @@ jobs:
           echo "$RUNNER_TEMP/databricks-cli" >> "$GITHUB_PATH"
       - name: Validate, deploy and test exact checkout
         env:
-          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
-          DATABRICKS_AUTH_TYPE: ${{ vars.DATABRICKS_AUTH_TYPE || 'pat' }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST || secrets.DATABRICKS_HOST }}
+          DATABRICKS_AUTH_TYPE: ${{ vars.DATABRICKS_AUTH_TYPE || 'oauth-m2m' }}
+          DATABRICKS_TOKEN: ${{ vars.DATABRICKS_AUTH_TYPE == 'pat' && secrets.DATABRICKS_TOKEN || '' }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID || vars.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
           PAIRITY_CATALOG: ${{ vars.PAIRITY_CATALOG }}
           PAIRITY_SCHEMA: ${{ vars.PAIRITY_SCHEMA }}
           PAIRITY_ARTIFACT_ROOT: ${{ vars.PAIRITY_ARTIFACT_ROOT }}

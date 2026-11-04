@@ -23,6 +23,7 @@ def test_preflight_lists_missing_names_without_secret_values():
     env = {
         "DATABRICKS_HOST": "https://example.databricks.com",
         "DATABRICKS_TOKEN": "secret",
+        "DATABRICKS_AUTH_TYPE": "pat",
         "PAIRITY_CATALOG": "workspace",
         "PAIRITY_SCHEMA": "pairity_test",
         "PAIRITY_ARTIFACT_ROOT": "/Volumes/workspace/pairity_test/artifacts",
@@ -173,3 +174,23 @@ def test_verifier_checks_evidence_and_actual_input_identity(monkeypatch, corrupt
     else:
         verifier.verify(None, dbutils)
         assert len(writes) == 1
+
+
+def test_service_principal_auth_needs_no_pat_and_reports_missing_secret():
+    validate = module("scripts/databricks_preflight.py").validate
+    env = {
+        "DATABRICKS_HOST": "https://example.databricks.com",
+        "DATABRICKS_CLIENT_ID": "test-client",
+        "DATABRICKS_CLIENT_SECRET": "private-value",
+        "PAIRITY_CATALOG": "workspace",
+        "PAIRITY_SCHEMA": "pairity_test",
+        "PAIRITY_ARTIFACT_ROOT": "/Volumes/workspace/pairity_test/artifacts",
+        "PAIRITY_RESULT_TABLE": "workspace.pairity_test.results",
+    }
+    validate(env)
+    validate(env | {"DATABRICKS_AUTH_TYPE": "oauth-m2m"})
+    with pytest.raises(ValueError) as error:
+        validate(env | {"DATABRICKS_CLIENT_SECRET": ""})
+    assert "DATABRICKS_CLIENT_SECRET" in str(error.value)
+    assert "DATABRICKS_TOKEN" not in str(error.value)
+    assert "private-value" not in str(error.value)

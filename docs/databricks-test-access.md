@@ -6,24 +6,22 @@ synthetic fixtures, a dedicated schema and a managed Volume.
 
 ## Authentication
 
-For an eligible full workspace, prefer a service principal with GitHub OIDC:
-`DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`, `DATABRICKS_AUTH_TYPE=github-oidc`,
-a federation policy restricted to this repository/environment, and workflow
-`id-token: write`. No long-lived Databricks secret is needed with federation.
+The `Databricks-free` environment uses a service principal with an OAuth client
+ID and secret. The workflow defaults to **`DATABRICKS_AUTH_TYPE=oauth-m2m`** and
+passes these settings to the Databricks CLI and SDK:
 
-Free Edition has no account console or account-level APIs. Do not assume the
-standard account-level federation setup is available. For this workspace, first
-check whether **Settings → Developer → Access tokens** allows token creation.
-If it does, a short-lived token for the sandbox user can be supplied as the
-GitHub environment secret `DATABRICKS_TOKEN`, with `DATABRICKS_AUTH_TYPE=pat` and
-`DATABRICKS_HOST` as an environment variable. Tokens inherit the user's access;
-creating a token does not narrow that user's grants. If token creation is absent,
-confirm a supported workspace-level noninteractive OAuth route before wiring
-Actions; an interactive sign-in alone does not establish unattended CI access.
+- `DATABRICKS_HOST`: workspace URL, from an environment variable or secret.
+- `DATABRICKS_CLIENT_ID`: environment secret (or variable).
+- `DATABRICKS_CLIENT_SECRET`: environment secret.
 
-Never paste the token into an issue, config file, notebook or chat. No credentials
-are configured by this document. A Free Edition token/authentication method has
-not yet been tested in the maintainer's workspace.
+No personal access token is required. The CLI/SDK obtain and refresh OAuth access
+tokens using the client credentials. The principal needs workspace assignment and
+the resource permissions below. The workflow does not create or change identities.
+
+Other setups can explicitly select `github-oidc` with a configured federation
+policy and client ID, or `pat` with the `DATABRICKS_TOKEN` secret. A configured PAT
+is only passed when PAT authentication is explicitly selected, avoiding conflicts
+with the default OAuth mode. Never paste credentials into issues, configs or chat.
 
 ## Permissions
 
@@ -48,7 +46,7 @@ Suggested GitHub environment variables (actual names/paths must be confirmed):
 
 ```text
 DATABRICKS_HOST=https://<your-workspace-host>
-DATABRICKS_AUTH_TYPE=pat          # or github-oidc where configured
+DATABRICKS_AUTH_TYPE=oauth-m2m    # default; optional variable override
 PAIRITY_CATALOG=workspace
 PAIRITY_SCHEMA=pairity_test
 PAIRITY_ARTIFACT_ROOT=/Volumes/workspace/pairity_test/artifacts
@@ -83,6 +81,7 @@ DataFrame caching capability described in deployment.md; summaries do not.
 ## Sources checked 2026-11-04
 
 - https://docs.databricks.com/aws/en/getting-started/free-edition-limitations
+- https://docs.databricks.com/aws/en/dev-tools/auth/oauth-m2m
 - https://docs.databricks.com/aws/en/dev-tools/auth/provider-github
 - https://docs.databricks.com/aws/en/dev-tools/auth/pat
 - https://docs.databricks.com/aws/en/jobs/privileges
