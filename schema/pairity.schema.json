@@ -46,105 +46,49 @@
       "additionalProperties": false,
       "properties": {
         "schema_policy": {
-          "anyOf": [
-            {
-              "const": "strict",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Schema Policy"
+          "title": "Schema Policy",
+          "const": "strict",
+          "type": "string"
         },
         "exclude_columns": {
-          "anyOf": [
-            {
-              "items": {
-                "minLength": 1,
-                "pattern": "^[^\\x00-\\x1f]+$",
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Exclude Columns"
+          "title": "Exclude Columns",
+          "items": {
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f]+$",
+            "type": "string"
+          },
+          "type": "array"
         },
         "column_rules": {
-          "anyOf": [
-            {
-              "patternProperties": {
-                "^[^\\x00-\\x1f]+$": {
-                  "$ref": "#/$defs/ColumnRule"
-                }
-              },
-              "propertyNames": {
-                "minLength": 1
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
+          "title": "Column Rules",
+          "patternProperties": {
+            "^[^\\x00-\\x1f]+$": {
+              "$ref": "#/$defs/ColumnRule"
             }
-          ],
-          "default": null,
-          "title": "Column Rules"
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "type": "object"
         },
         "max_changed_rows": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Changed Rows"
+          "title": "Max Changed Rows",
+          "minimum": 0,
+          "type": "integer"
         },
         "max_missing_rows": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Missing Rows"
+          "title": "Max Missing Rows",
+          "minimum": 0,
+          "type": "integer"
         },
         "max_extra_rows": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Extra Rows"
+          "title": "Max Extra Rows",
+          "minimum": 0,
+          "type": "integer"
         },
         "allow_key_only": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Allow Key Only"
+          "title": "Allow Key Only",
+          "type": "boolean"
         }
       },
       "title": "ComparisonOverrides",
@@ -349,6 +293,9 @@
     "suite",
     "pairs"
   ],
-  "title": "SuiteConfig",
-  "type": "object"
+  "title": "Pairity regression suite configuration v1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/buchochelliq-labs/pairity/raw/main/schema/pairity.schema.json",
+  "description": "Validates decoded JSON or YAML. Run pairity validate for cross-field uniqueness and semantic checks; table and PK availability are checked at execution time."
 }

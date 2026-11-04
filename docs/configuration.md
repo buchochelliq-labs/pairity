@@ -2,6 +2,8 @@
 
 The `.json`, `.yaml` and `.yml` extensions select codecs for the same schema. Use `pairity schema` to print the schema or [the checked-in schema](../schema/pairity.schema.json) for editor validation. Examples in both formats describe the same suite.
 
+The specification uses JSON Schema Draft 2020-12. Parse YAML with Pairity's JSON-compatible loader, then validate the resulting object against the same schema as JSON. CI validates the schema itself, both example formats, invalid documents and regeneration drift. JSON Schema covers structure, types, required fields, unknown fields, ranges and override nullability. Cross-field constraints such as uniqueness of pair IDs and one-to-one column mappings additionally require `pairity validate`; duplicate document keys are rejected during parsing. PK metadata and actual table contents require execution preflight. JSON Schema's numeric model also treats mathematically integral numbers as integers; Pairity's strict loader applies the final Python value-type checks.
+
 ## Primary keys
 
 Explicit ordered `keys` mappings take precedence and never require metadata access. Otherwise, the Unity Catalog provider reads declared primary-key columns. Discovered keys are matched by column name, even when their declaration order differs. Differently named, absent or ambiguous PKs require explicit mappings. Metadata permission errors remain errors, not an empty successful lookup.

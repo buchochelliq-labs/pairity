@@ -37,6 +37,7 @@ from pairity.plugins import PluginRegistry
 backends = PluginRegistry()
 backends.register("company-comparison", CompanyComparisonBackend)
 
+
 def runner_factory():
     # These are application-supplied implementations of the published protocols.
     return ComparisonRunner(
@@ -44,6 +45,7 @@ def runner_factory():
         CompanyMetadataProvider(),
         backends.create("company-comparison"),
     )
+
 
 engine = PairityEngine(runner_factory, sink=CompanyResultSink())
 ```
@@ -72,3 +74,7 @@ See Spark's [concurrent job scheduling documentation](https://spark.apache.org/d
 - CLI: rs-rich for reports and intuiTUIve for saved-report exploration. Both use the published `rs-rich` Python package backed by native Rust; Python Rich/Textual are not used.
 
 The user-facing Databricks App and workspace smoke verification remain separate milestones. The foundation is not a claim that those are already complete.
+
+## Hosted execution target
+
+Follow DQX Studio’s separation between the App/API and serverless task-runner Jobs. Pairity’s App or CLI submits a Job; notebook or Python wheel tasks call the reusable comparison library. Job-level pair fan-out provides bounded parallel execution and a final task validates complete result coverage. Classic Spark threading is an optional adapter, not a requirement of the hosted architecture. The current bundle still requires classic compute; see the [serverless implementation and Free Edition test plan](free-edition.md) for the remaining work.

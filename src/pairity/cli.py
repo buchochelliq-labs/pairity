@@ -169,7 +169,9 @@ def main(argv=None):
                 args.json,
             )
         elif args.command == "schema":
-            _json(SuiteConfig.model_json_schema())
+            from pairity.schema import configuration_schema
+
+            _json(configuration_schema())
         elif args.command == "convert":
             _output(dump_config(_read(args.source), args.format), args.output)
         elif args.command == "export":

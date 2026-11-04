@@ -1,6 +1,6 @@
 # Databricks deployment
 
-The bundle is an initial deployment definition, not a claim of live workspace verification.
+The bundle is an initial classic-compute deployment definition, not a claim of live workspace verification. The intended hosted architecture uses serverless Jobs, following DQX. See [Free Edition and serverless deployment](free-edition.md) for the required adapter changes and acceptance tests.
 
 ## Prerequisites
 
