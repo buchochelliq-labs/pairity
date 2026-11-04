@@ -229,3 +229,51 @@ def test_workflow_uses_selective_scopes_in_cli_and_sdk(monkeypatch):
         "workspace",
     }
     assert "all-apis" not in client.config.get_scopes_as_string()
+
+
+@pytest.mark.parametrize("collision", [None, "preflight", "create"])
+def test_fixture_creation_preserves_existing_tables(monkeypatch, collision):
+    loader = module("examples/tuva/load.py")
+    created = []
+    target = "`workspace`.`sandbox`.`gha_1_1_baseline_member_month`"
+
+    class Writer:
+        def using(self, provider):
+            assert provider == "delta"
+            return self
+
+        def create(self):
+            if collision == "create":
+                raise RuntimeError("TABLE_ALREADY_EXISTS")
+            created.append(target)
+
+    class Frame:
+        @property
+        def write(self):
+            raise AssertionError("Legacy errorifexists is unsupported on serverless")
+
+        def writeTo(self, table):
+            assert table == target
+            return Writer()
+
+    monkeypatch.setattr(loader, "frames", lambda *_: {("baseline", "member_month"): Frame()})
+
+    # Stop before config generation: this test isolates table creation semantics.
+    class ConfigReached(Exception):
+        pass
+
+    original_read = Path.read_text
+
+    def read(path, *args, **kwargs):
+        if path.name == "tuva-regression.json":
+            raise ConfigReached
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    spark = SimpleNamespace(
+        catalog=SimpleNamespace(tableExists=lambda name: collision == "preflight")
+    )
+    error = {None: ConfigReached, "preflight": ValueError, "create": RuntimeError}[collision]
+    with pytest.raises(error):
+        loader.load_fixture(spark, "workspace", "sandbox", table_prefix="gha_1_1")
+    assert created == ([target] if collision is None else [])
