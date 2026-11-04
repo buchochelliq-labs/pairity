@@ -50,7 +50,8 @@ def load_fixture(spark, catalog, schema, *, root=ROOT, table_prefix="tuva"):
     if existing:
         raise ValueError(f"Fixture tables already exist; use a fresh sandbox schema: {existing}")
     for key, frame in data.items():
-        frame.write.format("delta").mode("errorifexists").saveAsTable(quoted[key])
+        # V2 create supports Spark Connect and fails if a concurrent creator wins.
+        frame.writeTo(quoted[key]).using("delta").create()
     configs = {}
     for name in ("tuva-regression", "tuva-identical"):
         document = json.loads((root / f"{name}.json").read_text())
