@@ -119,3 +119,19 @@ def test_empty_explicit_keys_rejected_instead_of_discovery_fallback():
     data["pairs"][0]["keys"] = []
     with pytest.raises(ValueError):
         SuiteConfig.model_validate(data)
+
+
+@pytest.mark.parametrize("name", ["1e3", "-1E+10", "1.0e-3", "null", "true", "01"])
+def test_yaml_roundtrip_preserves_numeric_looking_strings_everywhere(name):
+    data = suite_data()
+    data["suite"] = name
+    data["pairs"][0].update(
+        {
+            "id": name,
+            "tags": [name],
+            "keys": [{"baseline": name, "candidate": name}],
+            "compare": {"column_rules": {name: {"absolute_tolerance": 0.1}}},
+        }
+    )
+    config = SuiteConfig.model_validate(data)
+    assert load_config(dump_config(config, "yaml"), "yaml") == config

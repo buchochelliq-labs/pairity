@@ -30,6 +30,15 @@ class _ConfigLoader(yaml.SafeLoader):
         return super().compose_node(parent, index)
 
 
+class _ConfigDumper(yaml.SafeDumper):
+    """Quote strings so neither YAML 1.1 nor JSON scalar resolution changes their type."""
+
+
+_ConfigDumper.add_representer(
+    str, lambda dumper, value: dumper.represent_scalar("tag:yaml.org,2002:str", value, style='"')
+)
+
+
 def _construct_mapping(loader, node):
     return _unique_mapping(
         (loader.construct_object(k), loader.construct_object(v)) for k, v in node.value
@@ -98,5 +107,5 @@ def dump_config(config: SuiteConfig, format: str) -> str:
     if format.lower() == "json":
         return json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
     if format.lower() in ("yaml", "yml"):
-        return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+        return yaml.dump(data, Dumper=_ConfigDumper, sort_keys=False, allow_unicode=True)
     raise ValueError(f"Unsupported configuration format: {format}")

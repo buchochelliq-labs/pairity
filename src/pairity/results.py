@@ -86,3 +86,57 @@ class RunResult:
             "finished_at": self.finished_at,
             "pairs": [p.to_dict() for p in self.pairs],
         }
+
+
+def validate_pair_result(result, pair, settings) -> None:
+    """Check inexpensive invariants before accepting a plugin's result as evidence."""
+    if (
+        not isinstance(result, PairResult)
+        or result.pair_id != pair.id
+        or result.status not in {"passed", "failed", "blocked", "error", "skipped"}
+    ):
+        raise ValueError("Comparison plugin returned an invalid result contract")
+    if result.status == "skipped" and pair.enabled:
+        raise ValueError("An enabled pair cannot be silently skipped by a comparison plugin")
+    counts = result.counts
+    if counts is None:
+        if result.status == "passed" or (
+            result.status == "failed" and not result.schema_differences
+        ):
+            raise ValueError("Executed comparisons must include complete row counts")
+        return
+    required = {
+        "baseline_rows",
+        "candidate_rows",
+        "matched_rows",
+        "changed_rows",
+        "missing_rows",
+        "extra_rows",
+    }
+    if (
+        not isinstance(counts, dict)
+        or not required <= counts.keys()
+        or any(type(value) is not int or value < 0 for value in counts.values())
+    ):
+        raise ValueError("Row counts must be complete, nonnegative integers")
+    if (
+        counts["matched_rows"] + counts["missing_rows"] != counts["baseline_rows"]
+        or counts["matched_rows"] + counts["extra_rows"] != counts["candidate_rows"]
+        or counts["changed_rows"] > counts["matched_rows"]
+    ):
+        raise ValueError("Row counts are internally inconsistent")
+    if not isinstance(result.column_changes, dict) or any(
+        type(value) is not int or not 0 <= value <= counts["changed_rows"]
+        for value in result.column_changes.values()
+    ):
+        raise ValueError("Column change counts are inconsistent with changed row counts")
+    regression = bool(result.schema_differences) or any(
+        counts[f"{kind}_rows"] > getattr(settings, f"max_{kind}_rows")
+        for kind in ("changed", "missing", "extra")
+    )
+    if result.status == "passed" and regression:
+        raise ValueError("A passing result cannot contain schema differences or exceed thresholds")
+    if result.status == "failed" and not regression:
+        raise ValueError(
+            "A failed row comparison must identify an exceeded threshold or schema change"
+        )

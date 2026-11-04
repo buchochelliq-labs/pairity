@@ -52,6 +52,8 @@ Factories must create fresh mutable components per pair. A source provider retur
 
 Comparison backends own schema/type support, key data validation and comparison semantics. The orchestration layer owns selection, bounded parallelism, isolation, stable ordering and failure aggregation. Sinks run after workers finish, on the orchestrator thread, and must raise on failed persistence. A later DQX adapter must satisfy the same result and capability contracts; it cannot silently skip unsupported columns.
 
+The orchestrator verifies exactly one outcome per selected pair and restores configured order even when an executor returns completion order. It rejects missing/malformed counts, negative/noninteger values, inconsistent row-count identities and passes that exceed configured thresholds. These checks catch adapter contract mistakes; adapters remain trusted application code and are responsible for performing their advertised comparisons and respecting concurrency contracts.
+
 ## Parallel execution
 
 The default executor uses a bounded thread pool. Spark's executor additionally captures a distinct copy of the caller's JVM thread properties for each pair using `inheritable_thread_target`. A single wrapped target would share mutable local properties, so each submitted pair has its own target. Pair readers use separate Spark sessions, job groups and scheduler pools; local properties are restored after use.

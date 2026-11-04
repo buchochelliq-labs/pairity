@@ -215,3 +215,24 @@ def test_spark_workers_inherit_context_and_isolate_job_groups_and_pools(spark):
     finally:
         context.setLocalProperty("pairity.test.context", None)
         context.setLocalProperty("spark.scheduler.pool", None)
+
+
+@pytest.mark.parametrize(
+    "dtype,left_value,right_value,tolerance,changed",
+    [
+        ("double", 1e308, -1e308, 1.8, 1),
+        ("double", 1e308, -1e308, 2.0, 0),
+        ("float", 3e38, -3e38, 2.0, 0),
+    ],
+)
+def test_relative_tolerance_does_not_overflow(
+    dtype, left_value, right_value, tolerance, changed, spark
+):
+    left = spark.createDataFrame([(1, left_value)], f"id long, value {dtype}")
+    right = spark.createDataFrame([(1, right_value)], f"id long, value {dtype}")
+    result = compare(
+        left,
+        right,
+        settings=ComparisonSettings(column_rules={"value": {"relative_tolerance": tolerance}}),
+    )
+    assert result.counts["changed_rows"] == changed

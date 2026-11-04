@@ -122,3 +122,68 @@ def test_invalid_plugin_output_cannot_pass_a_suite():
             return PairResult("wrong-pair", "passed")
 
     assert PairityEngine(Runner).run(config(1)).status == "error"
+
+
+@pytest.mark.parametrize("mode", ["omit", "duplicate", "wrong_id"])
+def test_executor_cannot_silently_drop_or_replace_selected_pairs(mode):
+    class Runner:
+        api_version = 1
+
+        def run(self, pair, settings, run_id):
+            return passed(pair.id)
+
+    class BrokenExecutor:
+        api_version = 1
+
+        def map(self, function, items, **kwargs):
+            first = function(list(items)[0])
+            return {
+                "omit": [first],
+                "duplicate": [first, first],
+                "wrong_id": [first, passed("unrequested")],
+            }[mode]
+
+    with pytest.raises(ValueError, match="coverage"):
+        PairityEngine(Runner, execution=BrokenExecutor()).run(config(2))
+
+
+def test_orchestrator_restores_configured_order_for_unordered_executor():
+    class Runner:
+        api_version = 1
+
+        def run(self, pair, settings, run_id):
+            return passed(pair.id)
+
+    class UnorderedExecutor:
+        api_version = 1
+
+        def map(self, function, items, **kwargs):
+            return list(reversed([function(item) for item in items]))
+
+    result = PairityEngine(Runner, execution=UnorderedExecutor()).run(config(3))
+    assert [p.pair_id for p in result.pairs] == ["0", "1", "2"]
+
+
+@pytest.mark.parametrize(
+    "alter",
+    [
+        lambda r: setattr(r, "counts", {}),
+        lambda r: r.counts.update({"changed_rows": -1}),
+        lambda r: r.counts.update({"baseline_rows": 1}),
+        lambda r: r.counts.update({"matched_rows": True}),
+        lambda r: r.schema_differences.append("missing column"),
+        lambda r: r.counts.update(
+            {"baseline_rows": 1, "candidate_rows": 1, "matched_rows": 1, "changed_rows": 1}
+        ),
+    ],
+)
+def test_malformed_or_threshold_violating_pass_from_plugin_is_error(alter):
+    class Runner:
+        api_version = 1
+
+        def run(self, pair, settings, run_id):
+            result = passed(pair.id)
+            alter(result)
+            return result
+
+    assert PairityEngine(Runner).run(config(1)).status == "error"

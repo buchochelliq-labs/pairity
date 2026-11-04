@@ -133,6 +133,8 @@ def _equal(left, right, rule):
     exact = left.eqNullSafe(right)
     if rule is None or not (rule.absolute_tolerance or rule.relative_tolerance):
         return exact
+    # FloatType subtraction may overflow even when the result fits in a double.
+    left, right = left.cast("double"), right.cast("double")
     finite = (
         left.isNotNull()
         & right.isNotNull()
@@ -141,11 +143,17 @@ def _equal(left, right, rule):
         & (F.abs(left) != float("inf"))
         & (F.abs(right) != float("inf"))
     )
-    allowed = F.greatest(
-        F.lit(rule.absolute_tolerance),
-        F.lit(rule.relative_tolerance) * F.greatest(F.abs(left), F.abs(right)),
-    )
-    return exact | F.coalesce(finite & (F.abs(left - right) <= allowed), F.lit(False))
+    distance = F.abs(left - right)
+    within = distance <= F.lit(rule.absolute_tolerance)
+    if rule.relative_tolerance:
+        scale = F.greatest(F.abs(left), F.abs(right))
+        # Opposite extreme doubles can overflow subtraction. Normalizing first
+        # bounds that distance by two and avoids an infinity <= infinity false pass.
+        scaled_distance = F.when(
+            distance == float("inf"), F.abs(left / scale - right / scale)
+        ).otherwise(distance / scale)
+        within = within | (scaled_distance <= F.lit(rule.relative_tolerance))
+    return exact | F.coalesce(finite & within, F.lit(False))
 
 
 class SparkComparisonBackend:

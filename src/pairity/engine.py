@@ -8,7 +8,7 @@ from pairity.config import SuiteConfig, resolve_settings
 from pairity.execution import ThreadExecutionBackend
 from pairity.metadata import resolve_keys
 from pairity.plugins import require_api
-from pairity.results import BlockedComparison, PairResult, RunResult
+from pairity.results import BlockedComparison, PairResult, RunResult, validate_pair_result
 
 
 class ComparisonRunner:
@@ -59,14 +59,7 @@ class PairityEngine:
             try:
                 runner = require_api(self.runner_factory())
                 result = runner.run(pair, settings, run_id)
-                if (
-                    not isinstance(result, PairResult)
-                    or result.pair_id != pair.id
-                    or result.status not in {"passed", "failed", "blocked", "error", "skipped"}
-                ):
-                    raise ValueError("Comparison plugin returned an invalid result contract")
-                if result.status == "passed" and result.counts is None:
-                    raise ValueError("A passing comparison must include executed row counts")
+                validate_pair_result(result, pair, settings)
             except BlockedComparison as exc:
                 result = PairResult(pair.id, "blocked", reason=str(exc))
             except Exception as exc:
@@ -77,6 +70,18 @@ class PairityEngine:
         pairs = self.execution.map(
             compare_pair, selected, max_parallel_pairs=config.execution.max_parallel_pairs
         )
+        expected = {pair.id for pair in selected}
+        if (
+            not isinstance(pairs, list)
+            or len(pairs) != len(selected)
+            or any(not isinstance(p, PairResult) or not isinstance(p.pair_id, str) for p in pairs)
+            or {p.pair_id for p in pairs} != expected
+        ):
+            raise ValueError("Execution backend returned incomplete or duplicate pair coverage")
+        indexed = {p.pair_id: p for p in pairs}
+        pairs = [indexed[pair.id] for pair in selected]
+        for pair, outcome in zip(selected, pairs, strict=True):
+            validate_pair_result(outcome, pair, resolve_settings(config, pair))
         result = RunResult(
             run_id,
             config.suite,

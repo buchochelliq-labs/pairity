@@ -27,6 +27,8 @@ Initial table identifiers support letters, digits, underscores and hyphens withi
 
 Defaults and overrides support strict schema comparison, `exclude_columns`, `column_rules`, `allow_key_only`, and maximum changed/missing/extra row counts. Zero row thresholds mean exact regression equality. A value equal to a configured maximum passes. `missing` means present only in the baseline; `extra` means present only in the candidate.
 
+In this version, strict schema comparison covers column names and Spark logical data types after explicit mappings/exclusions. Field order, nullability declarations and arbitrary schema metadata are not compared; actual key nulls are always validated.
+
 Overrides replace scalar/list values. `column_rules` merges by column name, with an overriding column rule replacing that column's complete policy. Omitting an override inherits it; an explicit null override is invalid. An empty exclusion list clears inherited exclusions. Rules address baseline column names. Excluding a key, naming an absent exclusion or applying a rule to an un-compared column blocks execution.
 
 Float/double values pass when they are exactly null-safe equal, or both finite and:
