@@ -4,8 +4,14 @@ bundle:
 variables:
   app_name:
     description: Unique lowercase Databricks App name
+    default: pairity-workbench
+  warehouse_name:
+    description: Existing warehouse name; override if renamed in the workspace
+    default: Serverless Starter Warehouse
   warehouse_id:
-    description: Existing serverless SQL warehouse
+    description: Resolved warehouse ID; an explicit variable override bypasses lookup
+    lookup:
+      warehouse: ${var.warehouse_name}
   job_id:
     description: Existing Pairity regression Job ID
   result_table:
@@ -14,8 +20,10 @@ variables:
     description: Existing /Volumes/catalog/schema/volume/prefix
   postgres_secret_scope:
     description: Existing secret scope containing the TLS Postgres connection string
+    default: pairity
   postgres_secret_key:
     description: Existing secret key for the initialized Pairity application database
+    default: postgres-dsn
   postgres_schema:
     default: pairity
 
@@ -67,3 +75,7 @@ resources:
 targets:
   workspace:
     default: true
+    variables:
+      # Existing Free Edition runner, verified by smoke run 41833551263.
+      # Update if the regression bundle is destroyed/recreated; this is not a run ID.
+      job_id: "656591313118833"
