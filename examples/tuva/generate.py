@@ -170,7 +170,7 @@ def generate(root=ROOT):
                 "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in rows)
             )
             with (directory / f"{table}.csv").open("w", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=SCHEMAS[table])
+                writer = csv.DictWriter(f, fieldnames=SCHEMAS[table], lineterminator="\n")
                 writer.writeheader()
                 writer.writerows(rows)
     (root / "schemas.json").write_text(json.dumps(SCHEMAS, indent=2) + "\n")
