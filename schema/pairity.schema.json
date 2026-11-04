@@ -1,0 +1,354 @@
+{
+  "$defs": {
+    "ColumnMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f]+$",
+          "title": "Baseline",
+          "type": "string"
+        },
+        "candidate": {
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f]+$",
+          "title": "Candidate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "baseline",
+        "candidate"
+      ],
+      "title": "ColumnMapping",
+      "type": "object"
+    },
+    "ColumnRule": {
+      "additionalProperties": false,
+      "properties": {
+        "absolute_tolerance": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Absolute Tolerance",
+          "type": "number"
+        },
+        "relative_tolerance": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Relative Tolerance",
+          "type": "number"
+        }
+      },
+      "title": "ColumnRule",
+      "type": "object"
+    },
+    "ComparisonOverrides": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_policy": {
+          "anyOf": [
+            {
+              "const": "strict",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Policy"
+        },
+        "exclude_columns": {
+          "anyOf": [
+            {
+              "items": {
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f]+$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exclude Columns"
+        },
+        "column_rules": {
+          "anyOf": [
+            {
+              "patternProperties": {
+                "^[^\\x00-\\x1f]+$": {
+                  "$ref": "#/$defs/ColumnRule"
+                }
+              },
+              "propertyNames": {
+                "minLength": 1
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column Rules"
+        },
+        "max_changed_rows": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Changed Rows"
+        },
+        "max_missing_rows": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Missing Rows"
+        },
+        "max_extra_rows": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Extra Rows"
+        },
+        "allow_key_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allow Key Only"
+        }
+      },
+      "title": "ComparisonOverrides",
+      "type": "object"
+    },
+    "ComparisonSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_policy": {
+          "const": "strict",
+          "default": "strict",
+          "title": "Schema Policy",
+          "type": "string"
+        },
+        "exclude_columns": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f]+$",
+            "type": "string"
+          },
+          "title": "Exclude Columns",
+          "type": "array"
+        },
+        "column_rules": {
+          "patternProperties": {
+            "^[^\\x00-\\x1f]+$": {
+              "$ref": "#/$defs/ColumnRule"
+            }
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "title": "Column Rules",
+          "type": "object"
+        },
+        "max_changed_rows": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max Changed Rows",
+          "type": "integer"
+        },
+        "max_missing_rows": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max Missing Rows",
+          "type": "integer"
+        },
+        "max_extra_rows": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Max Extra Rows",
+          "type": "integer"
+        },
+        "allow_key_only": {
+          "default": false,
+          "title": "Allow Key Only",
+          "type": "boolean"
+        }
+      },
+      "title": "ComparisonSettings",
+      "type": "object"
+    },
+    "ExecutionConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "max_parallel_pairs": {
+          "default": 4,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Max Parallel Pairs",
+          "type": "integer"
+        }
+      },
+      "title": "ExecutionConfig",
+      "type": "object"
+    },
+    "PairConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f]+$",
+          "title": "Id",
+          "type": "string"
+        },
+        "baseline": {
+          "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+          "title": "Baseline",
+          "type": "string"
+        },
+        "candidate": {
+          "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+          "title": "Candidate",
+          "type": "string"
+        },
+        "keys": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ColumnMapping"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keys"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnMapping"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "compare": {
+          "$ref": "#/$defs/ComparisonOverrides"
+        },
+        "tags": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f]+$",
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "baseline_version": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Version"
+        },
+        "candidate_version": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Version"
+        }
+      },
+      "required": [
+        "id",
+        "baseline",
+        "candidate"
+      ],
+      "title": "PairConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "suite": {
+      "minLength": 1,
+      "pattern": "^[^\\x00-\\x1f]+$",
+      "title": "Suite",
+      "type": "string"
+    },
+    "defaults": {
+      "$ref": "#/$defs/ComparisonSettings"
+    },
+    "execution": {
+      "$ref": "#/$defs/ExecutionConfig"
+    },
+    "pairs": {
+      "items": {
+        "$ref": "#/$defs/PairConfig"
+      },
+      "minItems": 1,
+      "title": "Pairs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "suite",
+    "pairs"
+  ],
+  "title": "SuiteConfig",
+  "type": "object"
+}

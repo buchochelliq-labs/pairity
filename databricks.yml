@@ -1,0 +1,41 @@
+bundle:
+  name: pairity
+
+variables:
+  existing_cluster_id:
+    description: Existing classic Spark compute with pinned threads and FAIR scheduling
+  config_path:
+    description: Workspace-accessible JSON or YAML suite path
+  report_directory:
+    description: Existing directory for per-run JSON reports
+
+artifacts:
+  wheel:
+    type: whl
+    build: python -m build --wheel
+    path: .
+
+resources:
+  jobs:
+    regression:
+      name: pairity-regression
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: compare_suite
+          existing_cluster_id: ${var.existing_cluster_id}
+          python_wheel_task:
+            package_name: pairity-data
+            entry_point: pairity-job
+            parameters:
+              - --json
+              - run
+              - ${var.config_path}
+              - --output
+              - ${var.report_directory}/{{job.run_id}}.json
+          libraries:
+            - whl: ./dist/*.whl
+
+targets:
+  dev:
+    default: true
+    mode: development
