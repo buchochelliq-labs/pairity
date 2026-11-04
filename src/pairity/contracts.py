@@ -76,3 +76,17 @@ class SourceResolver(Protocol):
     api_version: int
 
     def read(self, source: SourceSpec, reader: TableReader, cache: dict) -> TableInput: ...
+
+
+class ArtifactStore(Protocol):
+    api_version: int
+
+    def publish(self, run_id: str, files: dict[str, bytes]): ...
+
+    def download(self, reference) -> dict[str, bytes]: ...
+
+
+class ResultStore(ResultSink, Protocol):
+    def load(self, run_id: str) -> dict: ...
+
+    def differences(self, run_id: str, pair_id: str): ...
