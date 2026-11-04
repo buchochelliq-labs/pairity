@@ -277,3 +277,49 @@ def test_fixture_creation_preserves_existing_tables(monkeypatch, collision):
     with pytest.raises(error):
         loader.load_fixture(spark, "workspace", "sandbox", table_prefix="gha_1_1")
     assert created == ([target] if collision is None else [])
+
+
+def test_inspection_reads_each_run_without_starting_jobs(tmp_path):
+    from databricks.sdk.service.jobs import Run
+
+    script = module("scripts/databricks_smoke.py")
+    calls = []
+
+    class Jobs:
+        def get_run(self, run_id):
+            calls.append(run_id)
+            if run_id in (100, 200):
+                return Run.from_dict(
+                    {
+                        "run_id": run_id,
+                        "tasks": [{"task_key": "comparisons", "run_id": run_id + 1}],
+                        "job_parameters": [{"name": "private", "value": "do-not-export"}],
+                    }
+                )
+            return Run.from_dict(
+                {
+                    "run_id": run_id,
+                    "iterations": [
+                        {
+                            "run_id": run_id + i + 1,
+                            "task_key": "compare_pair",
+                            "start_time": a,
+                            "end_time": b,
+                        }
+                        for i, (a, b) in enumerate([(1, 4), (2, 5), (6, 9), (7, 10)])
+                    ]
+                    if run_id == 101
+                    else [],
+                }
+            )
+
+    script.inspect_runs(SimpleNamespace(jobs=Jobs()), [100, 200], tmp_path)
+    assert calls == [100, 101, 200, 201]
+    content = (tmp_path / "run-inspection.json").read_text()
+    import json
+
+    reports = json.loads(content)
+    assert reports[0]["foreach"][0]["iteration_count"] == 4
+    assert reports[1]["foreach"][0]["iteration_count"] == 0
+    assert reports[1]["foreach"][0]["requested_run_id"] == 201
+    assert "do-not-export" not in content
