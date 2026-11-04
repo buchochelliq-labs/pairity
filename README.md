@@ -10,6 +10,8 @@ Pairity follows the DQX library and workspace-tool architecture, with independen
 - Parse, validate, convert, import, export and bulk-patch one shared JSON/YAML configuration model.
 - Resolve explicit single/composite PK mappings or declared Unity Catalog PKs. Missing, null or duplicate keys never produce a passing comparison.
 - Compare schemas and scalar column values with distributed Spark, reporting missing, extra and changed rows and per-column counts.
+- Compose union/deduplication sources and reuse parameterized JSON/YAML templates.
+- Compare common columns or exclude named columns; apply audited implicit casts by default, with suite/pair/column opt-outs and explicit `compare_as` directives. Configure null equality at the same levels.
 - Pin Delta inputs to recorded table versions. Compared tables are read-only.
 - Compose metadata providers, readers, comparison backends, execution backends, configuration stores and result sinks through versioned interfaces.
 - Render CLI reports with **rs-rich's Rust-backed Python bindings**, and inspect saved runs with **intuiTUIve**.
@@ -30,6 +32,8 @@ pairity --json validate suite.json
 On Databricks, install the built wheel **without the `spark` extra** so the platform's PySpark is retained. Local Spark tests use PySpark 3.5.8 and Java 17. The initial Databricks adapter targets classic Spark with pinned threads; Spark Connect/serverless requires a separate adapter and is not claimed as supported.
 
 ## Run comparisons
+
+See [reusable sources and comparison rules](docs/sources-and-comparison.md) and [the template example](examples/templates.yaml) for composed inputs.
 
 Edit the table names and PKs in [examples/suite.yaml](examples/suite.yaml), then on a Databricks Spark runtime:
 

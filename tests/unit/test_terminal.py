@@ -49,3 +49,23 @@ def test_intuituive_report_supports_navigation_and_quit():
     assert rendered.finished
     assert "[bold]orders" in screen
     assert "Supply explicit PKs" in screen
+
+
+def test_report_displays_implicit_cast_decisions_and_ignored_columns():
+    data = report()
+    data["pairs"][0]["casts"] = [
+        {
+            "baseline": "amount",
+            "candidate": "amount",
+            "compare_as": "decimal(38,0)",
+            "mode": "implicit",
+            "invalid_baseline_rows": 0,
+            "invalid_candidate_rows": 0,
+        }
+    ]
+    data["pairs"][0]["ignored_columns"] = {"baseline": ["loaded_at"], "candidate": []}
+    stream = StringIO()
+    render_report(data, Console(file=stream, width=120, color_system=None))
+    output = stream.getvalue()
+    assert "implicit" in output and "decimal(38,0)" in output
+    assert "loaded_at" in output

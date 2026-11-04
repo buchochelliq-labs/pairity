@@ -26,17 +26,68 @@
     "ColumnRule": {
       "additionalProperties": false,
       "properties": {
+        "compare_as": {
+          "anyOf": [
+            {
+              "pattern": "^(string|boolean|byte|short|int|long|float|double|date|timestamp|timestamp_ntz|decimal\\([0-9]+,[0-9]+\\))$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Compare As"
+        },
+        "implicit_casts": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Implicit Casts"
+        },
+        "null_safe": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Null Safe"
+        },
         "absolute_tolerance": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Absolute Tolerance",
-          "type": "number"
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Absolute Tolerance"
         },
         "relative_tolerance": {
-          "default": 0,
-          "minimum": 0,
-          "title": "Relative Tolerance",
-          "type": "number"
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relative Tolerance"
         }
       },
       "title": "ColumnRule",
@@ -45,6 +96,22 @@
     "ComparisonOverrides": {
       "additionalProperties": false,
       "properties": {
+        "column_policy": {
+          "title": "Column Policy",
+          "enum": [
+            "strict",
+            "common"
+          ],
+          "type": "string"
+        },
+        "implicit_casts": {
+          "title": "Implicit Casts",
+          "type": "boolean"
+        },
+        "null_safe": {
+          "title": "Null Safe",
+          "type": "boolean"
+        },
         "schema_policy": {
           "title": "Schema Policy",
           "const": "strict",
@@ -97,6 +164,25 @@
     "ComparisonSettings": {
       "additionalProperties": false,
       "properties": {
+        "column_policy": {
+          "default": "strict",
+          "enum": [
+            "strict",
+            "common"
+          ],
+          "title": "Column Policy",
+          "type": "string"
+        },
+        "implicit_casts": {
+          "default": true,
+          "title": "Implicit Casts",
+          "type": "boolean"
+        },
+        "null_safe": {
+          "default": true,
+          "title": "Null Safe",
+          "type": "boolean"
+        },
         "schema_policy": {
           "const": "strict",
           "default": "strict",
@@ -151,6 +237,60 @@
       "title": "ComparisonSettings",
       "type": "object"
     },
+    "DeduplicateSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "deduplicate",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+              "type": "string"
+            },
+            {
+              "discriminator": {
+                "mapping": {
+                  "deduplicate": "#/$defs/DeduplicateSource",
+                  "parameter": "#/$defs/ParameterSource",
+                  "table": "#/$defs/TableSource",
+                  "template": "#/$defs/TemplateSource",
+                  "union": "#/$defs/UnionSource"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/TableSource"
+                },
+                {
+                  "$ref": "#/$defs/UnionSource"
+                },
+                {
+                  "$ref": "#/$defs/DeduplicateSource"
+                },
+                {
+                  "$ref": "#/$defs/TemplateSource"
+                },
+                {
+                  "$ref": "#/$defs/ParameterSource"
+                }
+              ]
+            }
+          ],
+          "title": "Source"
+        }
+      },
+      "required": [
+        "kind",
+        "source"
+      ],
+      "title": "DeduplicateSource",
+      "type": "object"
+    },
     "ExecutionConfig": {
       "additionalProperties": false,
       "properties": {
@@ -175,14 +315,80 @@
           "type": "string"
         },
         "baseline": {
-          "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
-          "title": "Baseline",
-          "type": "string"
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+              "type": "string"
+            },
+            {
+              "discriminator": {
+                "mapping": {
+                  "deduplicate": "#/$defs/DeduplicateSource",
+                  "parameter": "#/$defs/ParameterSource",
+                  "table": "#/$defs/TableSource",
+                  "template": "#/$defs/TemplateSource",
+                  "union": "#/$defs/UnionSource"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/TableSource"
+                },
+                {
+                  "$ref": "#/$defs/UnionSource"
+                },
+                {
+                  "$ref": "#/$defs/DeduplicateSource"
+                },
+                {
+                  "$ref": "#/$defs/TemplateSource"
+                },
+                {
+                  "$ref": "#/$defs/ParameterSource"
+                }
+              ]
+            }
+          ],
+          "title": "Baseline"
         },
         "candidate": {
-          "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
-          "title": "Candidate",
-          "type": "string"
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+              "type": "string"
+            },
+            {
+              "discriminator": {
+                "mapping": {
+                  "deduplicate": "#/$defs/DeduplicateSource",
+                  "parameter": "#/$defs/ParameterSource",
+                  "table": "#/$defs/TableSource",
+                  "template": "#/$defs/TemplateSource",
+                  "union": "#/$defs/UnionSource"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/TableSource"
+                },
+                {
+                  "$ref": "#/$defs/UnionSource"
+                },
+                {
+                  "$ref": "#/$defs/DeduplicateSource"
+                },
+                {
+                  "$ref": "#/$defs/TemplateSource"
+                },
+                {
+                  "$ref": "#/$defs/ParameterSource"
+                }
+              ]
+            }
+          ],
+          "title": "Candidate"
         },
         "keys": {
           "anyOf": [
@@ -258,6 +464,245 @@
       ],
       "title": "PairConfig",
       "type": "object"
+    },
+    "ParameterSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "parameter",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f]+$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "ParameterSource",
+      "type": "object"
+    },
+    "SourceTemplate": {
+      "additionalProperties": false,
+      "properties": {
+        "parameters": {
+          "items": {
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f]+$",
+            "type": "string"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+              "type": "string"
+            },
+            {
+              "discriminator": {
+                "mapping": {
+                  "deduplicate": "#/$defs/DeduplicateSource",
+                  "parameter": "#/$defs/ParameterSource",
+                  "table": "#/$defs/TableSource",
+                  "template": "#/$defs/TemplateSource",
+                  "union": "#/$defs/UnionSource"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/TableSource"
+                },
+                {
+                  "$ref": "#/$defs/UnionSource"
+                },
+                {
+                  "$ref": "#/$defs/DeduplicateSource"
+                },
+                {
+                  "$ref": "#/$defs/TemplateSource"
+                },
+                {
+                  "$ref": "#/$defs/ParameterSource"
+                }
+              ]
+            }
+          ],
+          "title": "Source"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "SourceTemplate",
+      "type": "object"
+    },
+    "TableSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "table",
+          "default": "table",
+          "title": "Kind",
+          "type": "string"
+        },
+        "table": {
+          "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+          "title": "Table",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "table"
+      ],
+      "title": "TableSource",
+      "type": "object"
+    },
+    "TemplateSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "template",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "inputs": {
+          "patternProperties": {
+            "^[^\\x00-\\x1f]+$": {
+              "anyOf": [
+                {
+                  "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+                  "type": "string"
+                },
+                {
+                  "discriminator": {
+                    "mapping": {
+                      "deduplicate": "#/$defs/DeduplicateSource",
+                      "parameter": "#/$defs/ParameterSource",
+                      "table": "#/$defs/TableSource",
+                      "template": "#/$defs/TemplateSource",
+                      "union": "#/$defs/UnionSource"
+                    },
+                    "propertyName": "kind"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/TableSource"
+                    },
+                    {
+                      "$ref": "#/$defs/UnionSource"
+                    },
+                    {
+                      "$ref": "#/$defs/DeduplicateSource"
+                    },
+                    {
+                      "$ref": "#/$defs/TemplateSource"
+                    },
+                    {
+                      "$ref": "#/$defs/ParameterSource"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "title": "Inputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "TemplateSource",
+      "type": "object"
+    },
+    "UnionSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "union",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+                "type": "string"
+              },
+              {
+                "discriminator": {
+                  "mapping": {
+                    "deduplicate": "#/$defs/DeduplicateSource",
+                    "parameter": "#/$defs/ParameterSource",
+                    "table": "#/$defs/TableSource",
+                    "template": "#/$defs/TemplateSource",
+                    "union": "#/$defs/UnionSource"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/TableSource"
+                  },
+                  {
+                    "$ref": "#/$defs/UnionSource"
+                  },
+                  {
+                    "$ref": "#/$defs/DeduplicateSource"
+                  },
+                  {
+                    "$ref": "#/$defs/TemplateSource"
+                  },
+                  {
+                    "$ref": "#/$defs/ParameterSource"
+                  }
+                ]
+              }
+            ]
+          },
+          "minItems": 2,
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "sources"
+      ],
+      "title": "UnionSource",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -272,6 +717,18 @@
       "pattern": "^[^\\x00-\\x1f]+$",
       "title": "Suite",
       "type": "string"
+    },
+    "templates": {
+      "patternProperties": {
+        "^[^\\x00-\\x1f]+$": {
+          "$ref": "#/$defs/SourceTemplate"
+        }
+      },
+      "propertyNames": {
+        "minLength": 1
+      },
+      "title": "Templates",
+      "type": "object"
     },
     "defaults": {
       "$ref": "#/$defs/ComparisonSettings"

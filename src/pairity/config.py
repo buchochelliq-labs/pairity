@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -15,17 +16,90 @@ class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, validate_default=True)
 
 
+class TableSource(Model):
+    kind: Literal["table"] = "table"
+    table: TableName
+    version: NonNegative | None = None
+
+
+class UnionSource(Model):
+    kind: Literal["union"]
+    sources: list["SourceSpec"] = Field(min_length=2)
+
+
+class DeduplicateSource(Model):
+    kind: Literal["deduplicate"]
+    source: "SourceSpec"
+
+
+class TemplateSource(Model):
+    kind: Literal["template"]
+    name: Name
+    inputs: dict[Name, "SourceSpec"] = Field(default_factory=dict)
+
+
+class ParameterSource(Model):
+    kind: Literal["parameter"]
+    name: Name
+
+
+Source = Annotated[
+    TableSource | UnionSource | DeduplicateSource | TemplateSource | ParameterSource,
+    Field(discriminator="kind"),
+]
+SourceSpec = TableName | Source
+for _model in (UnionSource, DeduplicateSource, TemplateSource):
+    _model.model_rebuild()
+
+
+class SourceTemplate(Model):
+    parameters: list[Name] = Field(default_factory=list)
+    source: SourceSpec
+
+    @model_validator(mode="after")
+    def unique_parameters(self):
+        if len(self.parameters) != len(set(self.parameters)):
+            raise ValueError("Template parameters must be unique")
+        return self
+
+
+CompareType = Annotated[
+    str,
+    Field(
+        pattern=r"^(string|boolean|byte|short|int|long|float|double|date|timestamp|timestamp_ntz|decimal\([0-9]+,[0-9]+\))$"
+    ),
+]
+
+
 class ColumnMapping(Model):
     baseline: Name
     candidate: Name
 
 
 class ColumnRule(Model):
-    absolute_tolerance: float = Field(default=0, ge=0, allow_inf_nan=False)
-    relative_tolerance: float = Field(default=0, ge=0, allow_inf_nan=False)
+    compare_as: CompareType | None = None
+    implicit_casts: bool | None = None
+    null_safe: bool | None = None
+
+    @field_validator("compare_as")
+    @classmethod
+    def valid_decimal(cls, value):
+        if value and value.startswith("decimal"):
+            precision, scale = map(int, re.findall(r"[0-9]+", value))
+            if not 1 <= precision <= 38 or not 0 <= scale <= precision:
+                raise ValueError(
+                    "decimal requires 1 <= precision <= 38 and 0 <= scale <= precision"
+                )
+        return value
+
+    absolute_tolerance: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    relative_tolerance: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class ComparisonSettings(Model):
+    column_policy: Literal["strict", "common"] = "strict"
+    implicit_casts: bool = True
+    null_safe: bool = True
     schema_policy: Literal["strict"] = "strict"
     exclude_columns: list[Name] = Field(default_factory=list)
     column_rules: dict[Name, ColumnRule] = Field(default_factory=dict)
@@ -36,6 +110,9 @@ class ComparisonSettings(Model):
 
 
 class ComparisonOverrides(Model):
+    column_policy: Literal["strict", "common"] | None = None
+    implicit_casts: bool | None = None
+    null_safe: bool | None = None
     schema_policy: Literal["strict"] | None = None
     exclude_columns: list[Name] | None = None
     column_rules: dict[Name, ColumnRule] | None = None
@@ -61,8 +138,8 @@ def validate_mapping(mappings: list[ColumnMapping]) -> None:
 
 class PairConfig(Model):
     id: Name
-    baseline: TableName
-    candidate: TableName
+    baseline: SourceSpec
+    candidate: SourceSpec
     keys: list[ColumnMapping] | None = Field(default=None, min_length=1)
     columns: list[ColumnMapping] = Field(default_factory=list)
     compare: ComparisonOverrides = Field(default_factory=ComparisonOverrides)
@@ -73,6 +150,12 @@ class PairConfig(Model):
 
     @model_validator(mode="after")
     def mappings_are_unique(self):
+        for side in ("baseline", "candidate"):
+            if (
+                not isinstance(getattr(self, side), str)
+                and getattr(self, f"{side}_version") is not None
+            ):
+                raise ValueError("Specify version inside a table source, not on a composed source")
         validate_mapping((self.keys or []) + self.columns)
         return self
 
@@ -84,6 +167,7 @@ class ExecutionConfig(Model):
 class SuiteConfig(Model):
     schema_version: Literal[1]
     suite: Name
+    templates: dict[Name, SourceTemplate] = Field(default_factory=dict)
     defaults: ComparisonSettings = Field(default_factory=ComparisonSettings)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     pairs: list[PairConfig] = Field(min_length=1)
@@ -100,6 +184,20 @@ class SuiteConfig(Model):
         ids = [p.id for p in self.pairs]
         if len(ids) != len(set(ids)):
             raise ValueError("duplicate pair IDs")
+        from pairity.sources import expand_source
+
+        for name, template in self.templates.items():
+            expand_source(
+                TemplateSource(
+                    kind="template",
+                    name=name,
+                    inputs={p: "pairity.validation.placeholder" for p in template.parameters},
+                ),
+                self.templates,
+            )
+        for pair in self.pairs:
+            expand_source(pair.baseline, self.templates)
+            expand_source(pair.candidate, self.templates)
         return self
 
     @property
@@ -114,7 +212,9 @@ class SuiteConfig(Model):
 
 
 def resolve_settings(suite: SuiteConfig, pair: PairConfig) -> ComparisonSettings:
-    defaults = suite.defaults.model_dump()
+    defaults = suite.defaults.model_dump(exclude_none=True)
     overrides = pair.compare.model_dump(exclude_none=True)
-    rules = defaults["column_rules"] | overrides.pop("column_rules", {})
+    rules = defaults["column_rules"].copy()
+    for name, patch in overrides.pop("column_rules", {}).items():
+        rules[name] = rules.get(name, {}) | patch
     return ComparisonSettings.model_validate(defaults | overrides | {"column_rules": rules})

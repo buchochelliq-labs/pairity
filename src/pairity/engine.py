@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from pairity.bulk import select_pairs
-from pairity.config import SuiteConfig, resolve_settings
+from pairity.config import SuiteConfig, TableSource, resolve_settings
 from pairity.execution import ThreadExecutionBackend
 from pairity.metadata import resolve_keys
 from pairity.plugins import require_api
@@ -14,17 +14,37 @@ from pairity.results import BlockedComparison, PairResult, RunResult, validate_p
 class ComparisonRunner:
     api_version = 1
 
-    def __init__(self, reader, metadata, backend):
+    def __init__(self, reader, metadata, backend, *, source_resolver=None):
         self.reader = require_api(reader)
         self.metadata = require_api(metadata)
         self.backend = require_api(backend)
+        self.source_resolver = require_api(source_resolver) if source_resolver is not None else None
 
     def run(self, pair, settings, run_id):
         with self.reader.scope(run_id, pair.id):
             keys = resolve_keys(pair, self.metadata)
-            left = self.reader.read(pair.baseline, pair.baseline_version)
-            right = self.reader.read(pair.candidate, pair.candidate_version)
-            result = self.backend.compare(pair, settings, keys, left, right)
+            cache = {}
+
+            def read(source, version):
+                if isinstance(source, str):
+                    source = TableSource(table=source, version=version)
+                if isinstance(source, TableSource):
+                    key = (source.table, source.version)
+                    if key not in cache:
+                        cache[key] = self.reader.read(*key)
+                    return cache[key]
+                if self.source_resolver is None:
+                    raise BlockedComparison("This runner has no composed source resolver")
+                return self.source_resolver.read(source, self.reader, cache)
+
+            left = read(pair.baseline, pair.baseline_version)
+            right = read(pair.candidate, pair.candidate_version)
+            try:
+                result = self.backend.compare(pair, settings, keys, left, right)
+            except BlockedComparison as exc:
+                exc.inputs = {"baseline": left.metadata(), "candidate": right.metadata()}
+                exc.keys = [k.model_dump() for k in keys]
+                raise
             result.keys = [k.model_dump() for k in keys]
             result.inputs = {"baseline": left.metadata(), "candidate": right.metadata()}
             return result
@@ -58,10 +78,25 @@ class PairityEngine:
                 )
             try:
                 runner = require_api(self.runner_factory())
-                result = runner.run(pair, settings, run_id)
+                from pairity.sources import expand_source
+
+                expanded = pair.model_copy(deep=True)
+                for side in ("baseline", "candidate"):
+                    source = getattr(pair, side)
+                    if not isinstance(source, str):
+                        setattr(expanded, side, expand_source(source, config.templates))
+                result = runner.run(expanded, settings, run_id)
                 validate_pair_result(result, pair, settings)
             except BlockedComparison as exc:
-                result = PairResult(pair.id, "blocked", reason=str(exc))
+                result = PairResult(
+                    pair.id,
+                    "blocked",
+                    reason=str(exc),
+                    casts=getattr(exc, "casts", []),
+                    ignored_columns=getattr(exc, "ignored_columns", {}),
+                    inputs=getattr(exc, "inputs", {}),
+                    keys=getattr(exc, "keys", []),
+                )
             except Exception as exc:
                 result = PairResult(pair.id, "error", reason=f"{type(exc).__name__}: {exc}")
             result.effective_settings = settings.model_dump()

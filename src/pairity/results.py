@@ -16,12 +16,14 @@ class TableInput:
     table: str
     version: int | None = None
     snapshot_pinned: bool = False
+    leaves: list[dict] = field(default_factory=list)
 
     def metadata(self) -> dict:
         return {
             "table": self.table,
             "version": self.version,
             "snapshot_pinned": self.snapshot_pinned,
+            **({"leaves": self.leaves} if self.leaves else {}),
         }
 
 
@@ -36,6 +38,8 @@ class PairResult:
     keys: list[dict[str, str]] = field(default_factory=list)
     inputs: dict[str, dict] = field(default_factory=dict)
     effective_settings: dict = field(default_factory=dict)
+    casts: list[dict] = field(default_factory=list)
+    ignored_columns: dict[str, list[str]] = field(default_factory=dict)
     differences: Any = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict:
@@ -52,6 +56,8 @@ class PairResult:
                 "keys",
                 "inputs",
                 "effective_settings",
+                "casts",
+                "ignored_columns",
             )
         }
 

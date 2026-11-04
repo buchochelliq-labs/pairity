@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterable
 
 from pydantic import TypeAdapter
 
-from pairity.config import ColumnMapping, PairConfig, TableName
+from pairity.config import ColumnMapping, PairConfig, TableName, TableSource
 from pairity.contracts import MetadataProvider
 from pairity.results import BlockedComparison
 
@@ -16,8 +16,16 @@ class MissingKeys(BlockedComparison):
 def resolve_keys(pair: PairConfig, metadata: MetadataProvider) -> list[ColumnMapping]:
     if pair.keys is not None:
         return [key.model_copy(deep=True) for key in pair.keys]
-    baseline = metadata.primary_key(pair.baseline)
-    candidate = metadata.primary_key(pair.candidate)
+
+    def table_name(source):
+        if isinstance(source, str):
+            return source
+        if isinstance(source, TableSource):
+            return source.table
+        raise MissingKeys("Derived sources require explicit key mappings")
+
+    baseline = metadata.primary_key(table_name(pair.baseline))
+    candidate = metadata.primary_key(table_name(pair.candidate))
     if (
         not baseline
         or not candidate

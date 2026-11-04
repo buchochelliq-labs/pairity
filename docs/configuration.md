@@ -1,5 +1,7 @@
 # Configuration
 
+See [sources, reusable templates, casts and null handling](sources-and-comparison.md) for composed inputs and normalization.
+
 The `.json`, `.yaml` and `.yml` extensions select codecs for the same schema. Use `pairity schema` to print the schema or [the checked-in schema](../schema/pairity.schema.json) for editor validation. Examples in both formats describe the same suite.
 
 The specification uses JSON Schema Draft 2020-12. Parse YAML with Pairity's JSON-compatible loader, then validate the resulting object against the same schema as JSON. CI validates the schema itself, both example formats, invalid documents and regeneration drift. JSON Schema covers structure, types, required fields, unknown fields, ranges and override nullability. Cross-field constraints such as uniqueness of pair IDs and one-to-one column mappings additionally require `pairity validate`; duplicate document keys are rejected during parsing. PK metadata and actual table contents require execution preflight. JSON Schema's numeric model also treats mathematically integral numbers as integers; Pairity's strict loader applies the final Python value-type checks.
@@ -18,7 +20,7 @@ Every supported row comparison checks both input snapshots for null and duplicat
 | `suite` | Suite name |
 | `execution.max_parallel_pairs` | Integer 1–64; default 4; CLI override is recorded in the run configuration |
 | `pairs[].id` | Stable, unique identifier used for updates and results |
-| `baseline`, `candidate` | Three-part `catalog.schema.table` names |
+| `baseline`, `candidate` | Table names or structured/composed source specifications |
 | `keys` | Optional nonempty list of `{baseline, candidate}` PK mappings |
 | `columns` | Explicit value-column mappings; remaining columns match by name |
 | `baseline_version`, `candidate_version` | Optional Delta versions; otherwise each side is pinned at read time |
@@ -31,7 +33,7 @@ Defaults and overrides support strict schema comparison, `exclude_columns`, `col
 
 In this version, strict schema comparison covers column names and Spark logical data types after explicit mappings/exclusions. Field order, nullability declarations and arbitrary schema metadata are not compared; actual key nulls are always validated.
 
-Overrides replace scalar/list values. `column_rules` merges by column name, with an overriding column rule replacing that column's complete policy. Omitting an override inherits it; an explicit null override is invalid. An empty exclusion list clears inherited exclusions. Rules address baseline column names. Excluding a key, naming an absent exclusion or applying a rule to an un-compared column blocks execution.
+Overrides replace scalar/list values. `column_rules` merges by column name and individual field, preserving omitted fields from suite defaults. Omitting an override inherits it; an explicit null override is invalid. An empty exclusion list clears inherited exclusions. Rules address baseline column names. Excluding a key, naming an absent exclusion or applying a rule to an un-compared column blocks execution.
 
 Float/double values pass when they are exactly null-safe equal, or both finite and:
 
@@ -41,13 +43,13 @@ NaN equals NaN; equal infinities compare equal; finite and infinite values diffe
 
 ## JSON/YAML interchange
 
-Both formats reject duplicate mapping keys, unknown fields, non-finite numbers, invalid types and unsupported versions. YAML plain scalars follow JSON-like rules: lowercase `true`/`false`/`null`, JSON decimal numbers, and otherwise strings. Thus `on`, `off`, unquoted dates and `01` stay strings. YAML object tags and aliases cannot introduce executable objects or recursive structures. YAML anchors/aliases are not supported; use suite defaults instead.
+Both formats reject duplicate mapping keys, unknown fields, non-finite numbers, invalid types and unsupported versions. YAML plain scalars follow JSON-like rules: lowercase `true`/`false`/`null`, JSON decimal numbers, and otherwise strings. Thus `on`, `off`, unquoted dates and `01` stay strings. YAML object tags and aliases cannot introduce executable objects or recursive structures. YAML anchors/aliases are not supported; use suite defaults and named source templates instead.
 
 Conversion preserves semantic values; comments, whitespace and original key order are not a round-trip contract. Configuration fingerprints are computed over normalized, sorted JSON, independent of the input format.
 
 ## Bulk updates and local storage
 
-`import` accepts a complete suite in either format. The imported suite-level defaults and execution settings become authoritative. Supplied pairs replace/add by ID; omitted pairs are retained. `patch` accepts a mapping of pair fields and targets explicit IDs or tags (any selected tag matches). Patches recursively merge objects and replace lists/scalars. IDs cannot be patched. Unknown selectors or invalid values reject the entire operation.
+`import` accepts a complete suite in either format. The imported suite-level templates, defaults and execution settings become authoritative. Supplied pairs replace/add by ID; omitted pairs are retained. `patch` accepts a mapping of pair fields and targets explicit IDs or tags (any selected tag matches). Patches recursively merge objects and replace lists/scalars. IDs cannot be patched. Unknown selectors or invalid values reject the entire operation.
 
 Both commands preview changes by default. `--apply` writes only after whole-suite validation; `--expected-revision` prevents overwriting a newer revision. Preview output explicitly indicates suite-level setting changes. Old numbered revisions remain exportable.
 

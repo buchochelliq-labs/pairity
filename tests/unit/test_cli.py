@@ -133,3 +133,36 @@ def test_default_cli_uses_human_rs_rich_report(tmp_path, capsys):
     assert "Pairity" in output
     assert "release" in output
     assert not output.lstrip().startswith("{")
+
+
+def test_import_new_template_into_existing_suite_and_preview_template_change(tmp_path, capsys):
+    source = write_config(tmp_path)
+    root = tmp_path / "configs"
+    assert (
+        main(
+            [
+                "--json",
+                "import",
+                str(source),
+                "--store",
+                str(root),
+                "--expected-revision",
+                "0",
+                "--apply",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    config = FileConfigStore(root).load().config.model_dump(exclude_none=True)
+    config["templates"] = {"orders": {"source": "prod.s.orders"}}
+    config["pairs"][0]["baseline"] = {"kind": "template", "name": "orders"}
+    path = tmp_path / "new.json"
+    path.write_text(json.dumps(config))
+    command = ["--json", "import", str(path), "--store", str(root), "--expected-revision", "1"]
+    assert main(command + ["--apply"]) == 0
+    capsys.readouterr()
+    config["templates"]["orders"]["source"] = "prod.s.new_orders"
+    path.write_text(json.dumps(config))
+    assert main(command[:-1] + ["2"]) == 0
+    assert json.loads(capsys.readouterr().out)["suite_settings_changed"] is True

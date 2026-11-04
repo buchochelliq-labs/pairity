@@ -30,6 +30,20 @@ def _rows(report):
     return rows
 
 
+def _normalization_details(pair):
+    lines = []
+    for cast in pair.get("casts", []):
+        lines.append(
+            f"{cast['baseline']} -> {cast['candidate']}: {cast['mode']} compare_as "
+            f"{cast['compare_as']} (invalid rows: baseline={cast['invalid_baseline_rows']}, "
+            f"candidate={cast['invalid_candidate_rows']})"
+        )
+    for side, names in pair.get("ignored_columns", {}).items():
+        if names:
+            lines.append(f"Ignored {side} columns: {', '.join(names)}")
+    return lines
+
+
 def render_report(report, console=None):
     console = console if console is not None else Console()
     if isinstance(report.get("pairs"), list):
@@ -48,6 +62,8 @@ def render_report(report, console=None):
         for pair in report["pairs"]:
             if pair.get("reason"):
                 console.print(Text(f"{_safe(pair['pair_id'])}: {_safe(pair['reason'])}"))
+            for detail in _normalization_details(pair):
+                console.print(Text(f"{_safe(pair['pair_id'])}: {_safe(detail)}"))
         console.print(Text(f"Suite status: {_safe(report['status'])}"))
     elif "preview" in report:
         table = Table("Pair", "Change", title="Pairity · configuration update")
@@ -87,7 +103,9 @@ def create_report_app(report):
 
         def detail():
             pair = report["pairs"][selected.get()]
-            return escape(_safe(pair.get("reason") or f"{pair['pair_id']}: {pair['status']}"))
+            lines = [pair.get("reason") or f"{pair['pair_id']}: {pair['status']}"]
+            lines += _normalization_details(pair)
+            return "\n".join(escape(_safe(line)) for line in lines)
 
         return column(
             [

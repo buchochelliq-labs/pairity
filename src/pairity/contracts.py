@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
 from typing import Protocol, TypeVar
 
-from pairity.config import ColumnMapping, ComparisonSettings, PairConfig, SuiteConfig
+from pairity.config import ColumnMapping, ComparisonSettings, PairConfig, SourceSpec, SuiteConfig
 from pairity.config_storage import StoredSuite
 from pairity.results import PairResult, RunResult, TableInput
 
@@ -70,3 +70,9 @@ class PairRunner(Protocol):
     api_version: int
 
     def run(self, pair: PairConfig, settings: ComparisonSettings, run_id: str) -> PairResult: ...
+
+
+class SourceResolver(Protocol):
+    api_version: int
+
+    def read(self, source: SourceSpec, reader: TableReader, cache: dict) -> TableInput: ...

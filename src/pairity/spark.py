@@ -17,6 +17,8 @@ from pairity.engine import ComparisonRunner, PairityEngine
 from pairity.execution import ThreadExecutionBackend
 from pairity.metadata import UnityCatalogMetadata, quote_table
 from pairity.results import BlockedComparison, PairResult, TableInput
+from pairity.spark_casts import normalize_frames
+from pairity.spark_sources import SparkSourceResolver
 
 SCALAR_TYPES = (
     T.BooleanType,
@@ -54,7 +56,7 @@ def _validate_keys(frame, names, side):
         raise BlockedComparison(f"{side} primary key contains duplicate values")
 
 
-def _layout(left, right, keys, columns, settings):
+def _layout(left, right, keys, columns, settings, *, check_types=True):
     for frame in (left, right):
         if frame.isStreaming:
             raise BlockedComparison("Regression comparisons require batch snapshots")
@@ -65,7 +67,7 @@ def _layout(left, right, keys, columns, settings):
     for key in keys:
         if key.baseline not in left_types or key.candidate not in right_types:
             raise BlockedComparison("Configured primary key column does not exist on both sides")
-        if left_types[key.baseline] != right_types[key.candidate]:
+        if check_types and left_types[key.baseline] != right_types[key.candidate]:
             raise BlockedComparison("Primary key column types must match exactly")
         if not isinstance(left_types[key.baseline], SCALAR_TYPES):
             raise BlockedComparison("Unsupported primary key type")
@@ -100,9 +102,11 @@ def _layout(left, right, keys, columns, settings):
     differences = [
         f"Missing candidate column: {name}" for name in sorted(remaining_left - remaining_right)
     ] + [f"Extra candidate column: {name}" for name in sorted(remaining_right - remaining_left)]
+    if settings.column_policy == "common":
+        differences = []
     for mapping in mappings:
         a, b = left_types[mapping.baseline], right_types[mapping.candidate]
-        if a != b:
+        if check_types and a != b:
             differences.append(
                 f"Type changed: {mapping.baseline}: {a.simpleString()} -> {b.simpleString()}"
             )
@@ -110,7 +114,7 @@ def _layout(left, right, keys, columns, settings):
         return mappings, differences
     if not mappings and not settings.allow_key_only:
         raise BlockedComparison("No value columns to compare; set allow_key_only explicitly")
-    if set(settings.column_rules) - {m.baseline for m in mappings}:
+    if set(settings.column_rules) - {m.baseline for m in [*keys, *mappings]}:
         raise BlockedComparison("A column rule refers to a column that is not compared")
     for mapping in mappings:
         dtype = left_types[mapping.baseline]
@@ -118,7 +122,8 @@ def _layout(left, right, keys, columns, settings):
             raise BlockedComparison(f"Unsupported comparison type for {mapping.baseline}: {dtype}")
         rule = settings.column_rules.get(mapping.baseline)
         if (
-            rule
+            check_types
+            and rule
             and (rule.absolute_tolerance or rule.relative_tolerance)
             and not isinstance(dtype, (T.FloatType, T.DoubleType))
         ):
@@ -129,8 +134,10 @@ def _layout(left, right, keys, columns, settings):
     return mappings, differences
 
 
-def _equal(left, right, rule):
-    exact = left.eqNullSafe(right)
+def _equal(left, right, rule, null_safe=True):
+    if rule is not None and rule.null_safe is not None:
+        null_safe = rule.null_safe
+    exact = left.eqNullSafe(right) if null_safe else F.coalesce(left == right, F.lit(False))
     if rule is None or not (rule.absolute_tolerance or rule.relative_tolerance):
         return exact
     # FloatType subtraction may overflow even when the result fits in a double.
@@ -144,7 +151,7 @@ def _equal(left, right, rule):
         & (F.abs(right) != float("inf"))
     )
     distance = F.abs(left - right)
-    within = distance <= F.lit(rule.absolute_tolerance)
+    within = distance <= F.lit(rule.absolute_tolerance or 0)
     if rule.relative_tolerance:
         scale = F.greatest(F.abs(left), F.abs(right))
         # Opposite extreme doubles can overflow subtraction. Normalizing first
@@ -163,16 +170,50 @@ class SparkComparisonBackend:
         if not keys:
             raise BlockedComparison("Primary keys are required")
         left, right = baseline.frame, candidate.frame
-        mappings, schema_diffs = _layout(left, right, keys, pair.columns, settings)
+        mappings, schema_diffs = _layout(
+            left, right, keys, pair.columns, settings, check_types=False
+        )
+        ignored = {
+            "baseline": [
+                c for c in left.columns if c not in {m.baseline for m in [*keys, *mappings]}
+            ],
+            "candidate": [
+                c for c in right.columns if c not in {m.candidate for m in [*keys, *mappings]}
+            ],
+        }
+        casts = []
+        if not schema_diffs:
+            left, right, casts = normalize_frames(left, right, [*keys, *mappings], settings)
+            if any(c["invalid_baseline_rows"] or c["invalid_candidate_rows"] for c in casts):
+                return PairResult(
+                    pair.id,
+                    "blocked",
+                    reason="Invalid or lossy cast; row comparison was not executed",
+                    casts=casts,
+                    ignored_columns=ignored,
+                )
+            try:
+                mappings, schema_diffs = _layout(left, right, keys, pair.columns, settings)
+            except BlockedComparison as exc:
+                exc.casts = casts
+                exc.ignored_columns = ignored
+                raise
         if schema_diffs:
             return PairResult(
                 pair.id,
                 "failed",
                 schema_differences=schema_diffs,
+                casts=casts,
+                ignored_columns=ignored,
                 reason="Schema differs; row comparison was not executed",
             )
-        _validate_keys(left, [k.baseline for k in keys], "Baseline")
-        _validate_keys(right, [k.candidate for k in keys], "Candidate")
+        try:
+            _validate_keys(left, [k.baseline for k in keys], "Baseline")
+            _validate_keys(right, [k.candidate for k in keys], "Candidate")
+        except BlockedComparison as exc:
+            exc.casts = casts
+            exc.ignored_columns = ignored
+            raise
 
         def wrapped(frame, alias):
             return frame.select(
@@ -197,6 +238,7 @@ class SparkComparisonBackend:
                     _field("b", m.baseline),
                     _field("c", m.candidate),
                     settings.column_rules.get(m.baseline),
+                    settings.null_safe,
                 ),
             )
             for m in mappings
@@ -245,6 +287,8 @@ class SparkComparisonBackend:
             pair.id,
             "failed" if failed else "passed",
             counts=counts,
+            casts=casts,
+            ignored_columns=ignored,
             column_changes={m.baseline: summary[f"col_{i}"] for i, m in enumerate(mappings)},
             differences=classified.where(F.col("kind") != "equal"),
         )
@@ -308,6 +352,11 @@ def create_spark_engine(spark, *, sink=None):
         metadata = UnityCatalogMetadata(
             lambda sql, params: (row.asDict() for row in session.sql(sql, args=params).collect())
         )
-        return ComparisonRunner(SparkTableReader(session), metadata, SparkComparisonBackend())
+        return ComparisonRunner(
+            SparkTableReader(session),
+            metadata,
+            SparkComparisonBackend(),
+            source_resolver=SparkSourceResolver(),
+        )
 
     return PairityEngine(factory, execution=SparkExecutionBackend(spark), sink=sink)

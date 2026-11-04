@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from pairity.bulk import patch_pairs, preview_update, upsert_pairs
+from pairity.bulk import patch_pairs, preview_update
 from pairity.config import SuiteConfig
 from pairity.config_storage import FileConfigStore, RevisionConflict
 from pairity.serialization import dump_config, load_config, load_document
@@ -95,12 +95,11 @@ def _bulk(args):
         if previous:
             if imported.suite != previous.config.suite:
                 raise ValueError("Cannot import a different suite into an existing store")
-            merged = upsert_pairs(
-                previous.config, [p.model_dump(exclude_none=True) for p in imported.pairs]
-            )
+            merged = {p.id: p for p in previous.config.pairs}
+            merged.update({p.id: p for p in imported.pairs})
             updated = SuiteConfig.model_validate(
                 imported.model_dump(exclude_none=True)
-                | {"pairs": [p.model_dump(exclude_none=True) for p in merged.pairs]}
+                | {"pairs": [p.model_dump(exclude_none=True) for p in merged.values()]}
             )
     else:
         if previous is None:
@@ -118,6 +117,7 @@ def _bulk(args):
         and (
             previous.config.defaults != updated.defaults
             or previous.config.execution != updated.execution
+            or previous.config.templates != updated.templates
         )
     )
     if args.apply:
