@@ -1,0 +1,29 @@
+schema_version: 1
+suite: tuva-regression
+execution:
+  max_parallel_pairs: 2
+pairs:
+- id: core__member_month
+  baseline: workspace.pairity_test.tuva_baseline_core__member_month
+  candidate: workspace.pairity_test.tuva_changed_core__member_month
+  keys:
+  - baseline: member_month_id
+    candidate: member_month_id
+- id: core__medical_claim
+  baseline: workspace.pairity_test.tuva_baseline_core__medical_claim
+  candidate: workspace.pairity_test.tuva_changed_core__medical_claim
+  keys:
+  - baseline: medical_claim_id
+    candidate: medical_claim_id
+- id: core__pharmacy_claim
+  baseline: workspace.pairity_test.tuva_baseline_core__pharmacy_claim
+  candidate: workspace.pairity_test.tuva_changed_core__pharmacy_claim
+  keys:
+  - baseline: pharmacy_claim_id
+    candidate: pharmacy_claim_id
+- id: core__cost
+  baseline: workspace.pairity_test.tuva_baseline_core__cost
+  candidate: workspace.pairity_test.tuva_changed_core__cost
+  keys:
+  - baseline: member_month_id
+    candidate: member_month_id

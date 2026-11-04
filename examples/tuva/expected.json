@@ -1,0 +1,34 @@
+{
+  "core__member_month": {
+    "baseline_rows": 104,
+    "candidate_rows": 102,
+    "matched_rows": 102,
+    "changed_rows": 0,
+    "missing_rows": 2,
+    "extra_rows": 0
+  },
+  "core__medical_claim": {
+    "baseline_rows": 100,
+    "candidate_rows": 100,
+    "matched_rows": 99,
+    "changed_rows": 3,
+    "missing_rows": 1,
+    "extra_rows": 1
+  },
+  "core__pharmacy_claim": {
+    "baseline_rows": 100,
+    "candidate_rows": 100,
+    "matched_rows": 100,
+    "changed_rows": 0,
+    "missing_rows": 0,
+    "extra_rows": 0
+  },
+  "core__cost": {
+    "baseline_rows": 104,
+    "candidate_rows": 104,
+    "matched_rows": 104,
+    "changed_rows": 3,
+    "missing_rows": 0,
+    "extra_rows": 0
+  }
+}

@@ -2,6 +2,8 @@
 
 The default bundle implements serverless preparation, parallel pair tasks and aggregation. It is locally tested and matches the Databricks CLI 1.23.0 bundle JSON Schema. Full `bundle validate` stops at missing workspace credentials here; the bundle has not been deployed or qualified in a live workspace. See [Free Edition acceptance tests](free-edition.md).
 
+See [test access setup](databricks-test-access.md) and the [Tuva synthetic datasets](../examples/tuva/README.md) for the CI sandbox.
+
 ## Prerequisites
 
 - A workspace with serverless Jobs and environment version 5 available.

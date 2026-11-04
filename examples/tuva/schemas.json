@@ -1,0 +1,52 @@
+{
+  "core__member_month": {
+    "member_month_id": "string",
+    "person_id": "string",
+    "member_id": "string",
+    "payer": "string",
+    "plan": "string",
+    "data_source": "string",
+    "year_month": "string"
+  },
+  "core__medical_claim": {
+    "medical_claim_id": "string",
+    "claim_id": "string",
+    "claim_line_number": "int",
+    "person_id": "string",
+    "member_id": "string",
+    "payer": "string",
+    "plan": "string",
+    "data_source": "string",
+    "claim_start_date": "date",
+    "paid_date": "date",
+    "paid_amount": "decimal(18,2)",
+    "allowed_amount": "decimal(18,2)"
+  },
+  "core__pharmacy_claim": {
+    "pharmacy_claim_id": "string",
+    "claim_id": "string",
+    "claim_line_number": "int",
+    "person_id": "string",
+    "member_id": "string",
+    "payer": "string",
+    "plan": "string",
+    "data_source": "string",
+    "dispensing_date": "date",
+    "paid_date": "date",
+    "paid_amount": "decimal(18,2)",
+    "allowed_amount": "decimal(18,2)"
+  },
+  "core__cost": {
+    "member_month_id": "string",
+    "person_id": "string",
+    "member_id": "string",
+    "payer": "string",
+    "plan": "string",
+    "data_source": "string",
+    "year_month": "string",
+    "total_paid": "decimal(18,2)",
+    "medical_paid": "decimal(18,2)",
+    "pharmacy_paid": "decimal(18,2)",
+    "total_allowed": "decimal(18,2)"
+  }
+}
