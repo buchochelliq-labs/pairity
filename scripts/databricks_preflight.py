@@ -14,13 +14,15 @@ def validate(env):
         "PAIRITY_ARTIFACT_ROOT",
         "PAIRITY_RESULT_TABLE",
     ]
-    auth = env.get("DATABRICKS_AUTH_TYPE", "pat")
-    if auth == "pat":
+    auth = env.get("DATABRICKS_AUTH_TYPE", "oauth-m2m")
+    if auth == "oauth-m2m":
+        required.extend(["DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET"])
+    elif auth == "pat":
         required.append("DATABRICKS_TOKEN")
     elif auth == "github-oidc":
         required.append("DATABRICKS_CLIENT_ID")
     else:
-        raise ValueError("Configure DATABRICKS_AUTH_TYPE as pat or github-oidc")
+        raise ValueError("Configure DATABRICKS_AUTH_TYPE as oauth-m2m, pat or github-oidc")
     missing = [name for name in required if not env.get(name, "").strip()]
     if missing:
         raise ValueError("Missing GitHub environment settings: " + ", ".join(missing))
