@@ -12,11 +12,12 @@ Pairity follows the DQX library and workspace-tool architecture, with independen
 - Compare schemas and scalar column values with distributed Spark, reporting missing, extra and changed rows and per-column counts.
 - Compose union/deduplication sources and reuse parameterized JSON/YAML templates.
 - Compare common columns or exclude named columns; apply audited implicit casts by default, with suite/pair/column opt-outs and explicit `compare_as` directives. Configure null equality at the same levels.
+- Persist application config revisions in Postgres/Lakebase, results in Delta, and downloadable evidence files in UC Volumes through replaceable [storage adapters](docs/storage.md).
 - Pin Delta inputs to recorded table versions. Compared tables are read-only.
 - Compose metadata providers, readers, comparison backends, execution backends, configuration stores and result sinks through versioned interfaces.
 - Render CLI reports with **rs-rich's Rust-backed Python bindings**, and inspect saved runs with **intuiTUIve**.
 
-This is the initial library/CLI foundation. The hosted Databricks App, distributed configuration storage, Delta result history, cancellation/retries, complex-type policies and optional DQX integration are tracked in the [issues](https://github.com/buchochelliq-labs/pairity/issues). No DQX runtime dependency is installed.
+This is the initial library/CLI foundation. The hosted Databricks App, live storage/deployment verification, automated retention, cancellation/retries, complex-type policies and optional DQX integration are tracked in the [issues](https://github.com/buchochelliq-labs/pairity/issues). No DQX runtime dependency is installed.
 
 ## Install and validate
 

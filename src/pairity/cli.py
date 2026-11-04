@@ -13,6 +13,32 @@ from pairity.config_storage import FileConfigStore, RevisionConflict
 from pairity.serialization import dump_config, load_config, load_document
 
 
+def _postgres_documents():
+    from psycopg import connect
+
+    from pairity.postgres import PostgresDocumentStore
+
+    dsn = os.environ.get("PAIRITY_POSTGRES_DSN")
+    if not dsn:
+        raise ValueError(
+            "Set PAIRITY_POSTGRES_DSN or supply a connection factory through the library"
+        )
+    return PostgresDocumentStore(
+        lambda: connect(dsn), schema=os.environ.get("PAIRITY_POSTGRES_SCHEMA", "pairity")
+    )
+
+
+def _config_store(location):
+    if location.startswith("postgres:"):
+        from pairity.postgres import PostgresConfigStore
+
+        suite = location.removeprefix("postgres:")
+        if not suite:
+            raise ValueError("Use postgres:SUITE_NAME")
+        return PostgresConfigStore(_postgres_documents(), suite)
+    return FileConfigStore(location)
+
+
 def _read(path, *, document=False):
     file = Path(path)
     loader = load_document if document else load_config
@@ -48,6 +74,8 @@ def _parser():
     parser.add_argument("--json", action="store_true", help="Machine-readable JSON output")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("validate", help="Validate a JSON/YAML suite").add_argument("source")
+    commands.add_parser("init-postgres", help="Provision Pairity application-state tables")
+    commands.add_parser("init-results", help="Provision a Delta result table").add_argument("table")
     commands.add_parser("schema", help="Print the configuration JSON Schema")
     commands.add_parser("inspect", help="Explore a saved run with intuiTUIve").add_argument(
         "source"
@@ -77,11 +105,17 @@ def _parser():
     selection.add_argument("--pair-id", action="append")
     selection.add_argument("--tag", action="append")
     run.add_argument("--output", help="JSON run report; difference DataFrames stay distributed")
+    run.add_argument("--result-table", help="Existing Pairity Delta result table")
+    run.add_argument(
+        "--retain-differences",
+        action="store_true",
+        help="Persist row-level differences with results",
+    )
     return parser
 
 
 def _bulk(args):
-    store = FileConfigStore(args.store)
+    store = _config_store(args.store)
     try:
         previous = store.load()
     except FileNotFoundError:
@@ -135,6 +169,8 @@ def _bulk(args):
 
 
 def _run(args):
+    if args.retain_differences and not args.result_table:
+        raise ValueError("--retain-differences requires --result-table")
     config = _read(args.source)
     if args.max_parallel_pairs is not None:
         data = config.model_dump(exclude_none=True)
@@ -145,9 +181,15 @@ def _run(args):
 
     from pairity.spark import create_spark_engine
 
-    result = create_spark_engine(SparkSession.builder.getOrCreate()).run(
-        config, pair_ids=args.pair_id, tags=args.tag
-    )
+    spark = SparkSession.builder.getOrCreate()
+    sink = None
+    if args.result_table:
+        from pairity.delta_storage import DeltaResultStore
+
+        sink = DeltaResultStore(
+            spark, args.result_table, retain_differences=args.retain_differences
+        )
+    result = create_spark_engine(spark, sink=sink).run(config, pair_ids=args.pair_id, tags=args.tag)
     if args.output:
         _json(result.to_dict(), args.output)
     _display(result.to_dict(), args.json)
@@ -157,7 +199,17 @@ def _run(args):
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
-        if args.command == "validate":
+        if args.command == "init-postgres":
+            _postgres_documents().initialize()
+            _display({"initialized": "postgres"}, args.json)
+        elif args.command == "init-results":
+            from pyspark.sql import SparkSession
+
+            from pairity.delta_storage import DeltaResultStore
+
+            DeltaResultStore(SparkSession.builder.getOrCreate(), args.table).initialize()
+            _display({"initialized": args.table}, args.json)
+        elif args.command == "validate":
             config = _read(args.source)
             _display(
                 {

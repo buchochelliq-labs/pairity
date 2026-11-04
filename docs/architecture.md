@@ -81,3 +81,7 @@ The user-facing Databricks App and workspace smoke verification remain separate 
 Follow DQX Studio’s separation between the App/API and serverless task-runner Jobs. Pairity’s App or CLI submits a Job; notebook or Python wheel tasks call the reusable comparison library. Job-level pair fan-out provides bounded parallel execution and a final task validates complete result coverage. Classic Spark threading is an optional adapter, not a requirement of the hosted architecture. The current bundle still requires classic compute; see the [serverless implementation and Free Edition test plan](free-edition.md) for the remaining work.
 
 Source templates expand to typed operations before scheduling. A `SourceResolver` composes pinned leaf inputs through the existing table reader; it never guesses PKs for derived sources. Numeric normalization happens before key validation and comparison and records cast decisions in results. Both comparison logic and source transformations stay in the library, reusable by thin serverless task wrappers.
+
+## Storage boundaries
+
+Postgres/Lakebase holds revisioned application state; a single-transaction Delta envelope holds completed run reports and optional distributed row differences; one or more UC Volumes hold immutable artifact bundles. Postgres stores artifact references, not file bytes. Workers receive immutable config snapshots and do not need Postgres credentials. See [storage setup and guarantees](storage.md).
