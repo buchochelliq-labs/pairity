@@ -72,7 +72,7 @@ def test_pair_overlap_requires_two_and_rejects_serial_execution():
                 return SimpleNamespace(tasks=[SimpleNamespace(task_key="comparisons", run_id=2)])
             return SimpleNamespace(
                 iterations=[
-                    SimpleNamespace(run_id=i + 10, start_time=a, end_time=b)
+                    SimpleNamespace(run_id=i + 10, start_time=a, end_time=b, attempt_number=0)
                     for i, (a, b) in enumerate(intervals)
                 ]
             )
@@ -323,3 +323,42 @@ def test_inspection_reads_each_run_without_starting_jobs(tmp_path):
     assert reports[1]["foreach"][0]["iteration_count"] == 0
     assert reports[1]["foreach"][0]["requested_run_id"] == 201
     assert "do-not-export" not in content
+
+
+@pytest.mark.parametrize("case", ["retries", "missing", "excess", "overlap"])
+def test_iteration_retries_are_not_extra_pairs_but_count_toward_parallelism(case):
+    from databricks.sdk.service.jobs import Run
+
+    script = module("scripts/databricks_smoke.py")
+    attempts = [(0, 1, 4), (0, 2, 5), (1, 6, 8), (1, 7, 9), (0, 10, 13), (0, 11, 14), (1, 15, 17)]
+    if case == "missing":
+        attempts[4] = (1, 10, 13)
+    elif case == "excess":
+        attempts[2] = (0, 6, 8)
+    elif case == "overlap":
+        attempts[2] = (1, 3, 8)
+
+    class Jobs:
+        def get_run(self, run_id):
+            if run_id == 1:
+                return Run.from_dict({"tasks": [{"task_key": "comparisons", "run_id": 2}]})
+            return Run.from_dict(
+                {
+                    "iterations": [
+                        {"run_id": i + 10, "attempt_number": n, "start_time": a, "end_time": b}
+                        for i, (n, a, b) in enumerate(attempts)
+                    ]
+                }
+            )
+
+    client = SimpleNamespace(jobs=Jobs())
+    if case == "retries":
+        result = script.overlap(client, 1)
+        assert result["pair_iterations"] == 4
+        assert result["attempt_count"] == 7
+        assert result["peak_pair_tasks"] == 2
+        assert len(result["iterations"]) == 7
+    else:
+        message = "observed 3" if case == "overlap" else "four pair iterations"
+        with pytest.raises(ValueError, match=message):
+            script.overlap(client, 1)

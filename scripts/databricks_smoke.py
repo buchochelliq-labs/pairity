@@ -78,10 +78,15 @@ def overlap(client, run_id):
     if len(tasks) != 1 or tasks[0].run_id is None:
         raise ValueError("Missing For each task run")
     iterations = client.jobs.get_run(run_id=tasks[0].run_id).iterations or []
-    if len(iterations) != 4:
+    # Jobs returns every attempt, including retries, for each logical iteration.
+    if any(t.attempt_number is None or t.attempt_number < 0 for t in iterations):
+        raise ValueError("Missing or invalid iteration attempt number")
+    initial = [t for t in iterations if t.attempt_number == 0]
+    if len(initial) != 4:
         raise ValueError(
             f"Expected four pair iterations for Job run {run_id}, "
-            f"For each run {tasks[0].run_id}; API returned {len(iterations)}"
+            f"For each run {tasks[0].run_id}; API returned {len(initial)} initial "
+            f"attempts across {len(iterations)} total attempts"
         )
     events = []
     for task in iterations:
@@ -97,8 +102,16 @@ def overlap(client, run_id):
     return {
         "run_id": run_id,
         "peak_pair_tasks": peak,
+        "pair_iterations": len(initial),
+        "attempt_count": len(iterations),
         "iterations": [
-            {"run_id": t.run_id, "start": t.start_time, "end": t.end_time} for t in iterations
+            {
+                "run_id": t.run_id,
+                "attempt_number": t.attempt_number,
+                "start": t.start_time,
+                "end": t.end_time,
+            }
+            for t in iterations
         ],
     }
 
