@@ -1,0 +1,17 @@
+schema_version: 1
+suite: serverless-smoke
+execution:
+  max_parallel_pairs: 2
+pairs:
+  - id: equal
+    baseline: sandbox.pairity.pairity_equal_baseline
+    candidate: sandbox.pairity.pairity_equal_candidate
+    keys:
+      - baseline: id
+        candidate: id
+  - id: changed
+    baseline: sandbox.pairity.pairity_changed_baseline
+    candidate: sandbox.pairity.pairity_changed_candidate
+    keys:
+      - baseline: id
+        candidate: id

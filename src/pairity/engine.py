@@ -60,11 +60,13 @@ class PairityEngine:
         )
         self.sink = require_api(sink) if sink is not None else None
 
-    def run(self, config: SuiteConfig, *, pair_ids=None, tags=None) -> RunResult:
+    def run(self, config: SuiteConfig, *, pair_ids=None, tags=None, run_id=None) -> RunResult:
         # Freeze a semantic copy before any worker starts or caller changes the config.
         config = SuiteConfig.model_validate(config.model_dump(exclude_none=True))
         selected = select_pairs(config, pair_ids, tags)
-        run_id = str(uuid4())
+        run_id = str(uuid4()) if run_id is None else run_id
+        if not isinstance(run_id, str) or not run_id:
+            raise ValueError("run_id must be a nonempty string")
         started = datetime.now(timezone.utc).isoformat()
 
         def compare_pair(pair):

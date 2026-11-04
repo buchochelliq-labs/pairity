@@ -6,7 +6,7 @@ Verified against official documentation on 4 November 2026. This is a compatibil
 
 Free Edition provides serverless compute only, without custom classic clusters. Its documented account limit is five concurrent Job tasks. It supports up to three Apps, which automatically stop after 24 hours and can be restarted. Usage quotas and restricted outbound internet access also apply.
 
-The current `databricks.yml` requires an existing classic cluster. `SparkExecutionBackend` uses SparkContext/JVM thread properties, and `SparkTableReader.scope` sets classic job groups/pools. Serverless exposes Spark Connect APIs and does not expose SparkContext. Therefore the current engine composition and bundle are **not Free Edition compatible**. Schema validation and config management can be tested independently; the DataFrame comparison core is a candidate for reuse, subject to live Connect tests.
+The default bundle now targets serverless Jobs with a Connect-compatible single-pair composition root. Classic Spark's threaded engine remains available for direct runs. Local tests cover orchestration contracts and the Spark core; **live Free Edition compatibility is not yet verified**. Use [deployment instructions](deployment.md) and the checks below before relying on results. Summary-only writes avoid caching; opt-in row evidence requires the current serverless DataFrame caching preview (environment 5+).
 
 ## Target architecture: DQX-style serverless Jobs
 
@@ -15,8 +15,8 @@ DQX Studio separates its App/API from a serverless Databricks task-runner Job; S
 ## Deployment implementation route
 
 1. Build the wheel locally. Upload it and small JSON/YAML fixture configs to workspace files or a Unity Catalog Volume. Install it using the serverless notebook environment or Job environment dependencies. Retain Databricks' PySpark; do not install Pairity's local `spark` extra. Verify the native rs-rich wheel installs on that environment; use JSON output in Jobs and run the full-screen intuiTUIve inspector locally.
-2. Implement a Connect-compatible reader/scope adapter using public SparkSession APIs, without SparkContext, JVM properties or FAIR pool configuration. Preserve version-pinned Delta reads and UC PK discovery. Audit each used DataFrame API on the actual serverless runtime.
-3. Add a serverless Job bundle without `existing_cluster_id`. Use a `For each` task to fan out pair IDs to a comparison task, initially with concurrency **2**, configurable up to the available account quota (at most five concurrent tasks across the account). Each task compares one pair; do not nest the classic thread executor inside it.
+2. Verify the Connect-compatible reader/scope adapter using public SparkSession APIs, without SparkContext, JVM properties or FAIR pool configuration. Preserve version-pinned Delta reads and UC PK discovery. Audit each used DataFrame API on the actual serverless runtime.
+3. Deploy the serverless Job bundle without `existing_cluster_id`. Use a `For each` task to fan out pair IDs to a comparison task, initially with concurrency **2**, configurable up to the available account quota (at most five concurrent tasks across the account). Each task compares one pair; do not nest the classic thread executor inside it.
 4. Publish validated configuration once per run and pass its immutable path/hash and each pair ID. Write unique per-pair result files or Delta result records; do not share a latest-report filename or the local file-store lock between tasks.
 5. Run a final aggregation task after all comparison tasks finish, including failure paths. Verify every selected pair has exactly one terminal outcome. Missing task results, failed persistence and inaccessible inputs must fail the run. Preserve row-regression outcomes as results for aggregation; infrastructure failures must also remain visible to Jobs.
 6. Add the hosted App after the execution route works. It submits Jobs and displays results; large comparisons stay on serverless compute. App limits do not provide an always-on production service.
@@ -39,6 +39,7 @@ Free Edition is documented for learning and non-commercial exploration, with lim
 ## Sources
 
 - [Free Edition limitations](https://docs.databricks.com/aws/en/getting-started/free-edition-limitations)
+- [Serverless DataFrame caching requirements](https://docs.databricks.com/aws/en/compute/serverless/dataframe-cache)
 - [Serverless compute limitations](https://docs.databricks.com/aws/en/compute/serverless/limitations)
 - [SparkContext serverless compatibility](https://docs.databricks.com/aws/en/pyspark/reference/classes/sparksession/sparkContext)
 - [For each Job task](https://docs.databricks.com/aws/en/jobs/for-each)

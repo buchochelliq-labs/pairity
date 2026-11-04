@@ -2,12 +2,18 @@ bundle:
   name: pairity
 
 variables:
-  existing_cluster_id:
-    description: Existing classic Spark compute with pinned threads and FAIR scheduling
   config_path:
-    description: Workspace-accessible JSON or YAML suite path
-  report_directory:
-    description: Existing directory for per-run JSON reports
+    description: Existing workspace or Volume JSON/YAML suite file
+  result_table:
+    description: Existing initialized catalog.schema.table for Delta results
+  artifact_root:
+    description: Existing /Volumes/catalog/schema/volume[/prefix] for run manifests
+  parallel_pairs:
+    description: Jobs fan-out concurrency; must not exceed suite max_parallel_pairs
+    default: 2
+  retain_differences:
+    description: Requires serverless DataFrame caching preview when true
+    default: 'false'
 
 artifacts:
   wheel:
@@ -20,20 +26,61 @@ resources:
     regression:
       name: pairity-regression
       max_concurrent_runs: 1
+      parameters:
+        - name: config_path
+          default: ${var.config_path}
+        - name: config_hash
+          default: ''
+      environments:
+        - environment_key: pairity
+          spec:
+            environment_version: '5'
+            dependencies:
+              - ./dist/*.whl
+              - databricks-sdk==0.160.0
       tasks:
-        - task_key: compare_suite
-          existing_cluster_id: ${var.existing_cluster_id}
-          python_wheel_task:
-            package_name: pairity-data
-            entry_point: pairity-job
-            parameters:
-              - --json
-              - run
-              - ${var.config_path}
-              - --output
-              - ${var.report_directory}/{{job.run_id}}.json
-          libraries:
-            - whl: ./dist/*.whl
+        - task_key: prepare
+          environment_key: pairity
+          notebook_task:
+            notebook_path: ./notebooks/prepare.py
+            base_parameters:
+              config_path: '{{job.parameters.config_path}}'
+              config_hash: '{{job.parameters.config_hash}}'
+              artifact_root: ${var.artifact_root}
+              parallel_pairs: ${var.parallel_pairs}
+              job_run_id: '{{job.run_id}}'
+        - task_key: comparisons
+          depends_on:
+            - task_key: prepare
+          for_each_task:
+            inputs: '{{tasks.prepare.values.pairs}}'
+            concurrency: ${var.parallel_pairs}
+            task:
+              task_key: compare_pair
+              environment_key: pairity
+              max_retries: 0
+              notebook_task:
+                notebook_path: ./notebooks/compare.py
+                base_parameters:
+                  manifest: '{{tasks.prepare.values.manifest}}'
+                  artifact_root: ${var.artifact_root}
+                  result_table: ${var.result_table}
+                  retain_differences: ${var.retain_differences}
+                  job_run_id: '{{job.run_id}}'
+                  pair_index: '{{input}}'
+        - task_key: aggregate
+          depends_on:
+            - task_key: comparisons
+            - task_key: prepare
+          run_if: ALL_DONE
+          environment_key: pairity
+          notebook_task:
+            notebook_path: ./notebooks/aggregate.py
+            base_parameters:
+              manifest: '{{tasks.prepare.values.manifest}}'
+              artifact_root: ${var.artifact_root}
+              result_table: ${var.result_table}
+              job_run_id: '{{job.run_id}}'
 
 targets:
   dev:

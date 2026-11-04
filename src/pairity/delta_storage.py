@@ -131,7 +131,8 @@ class DeltaResultStore:
                     ).alias("payload"),
                 )
                 frame = frame.unionByName(rows)
-        frame = frame.persist()
+        if self.retain_differences:
+            frame = frame.persist()
         try:
             # Materialize a stable candidate and validate bounded kind aggregates.
             for pair in result.pairs:
@@ -181,7 +182,8 @@ class DeltaResultStore:
                 raise ValueError("Concurrent writer committed a different result for this run ID")
             self._verify_evidence(frame, result.run_id)
         finally:
-            frame.unpersist()
+            if self.retain_differences:
+                frame.unpersist()
 
     def _verify_evidence(self, candidate, run_id):
         # Exact distributed multiset comparison; no lossy hash can certify a retry.

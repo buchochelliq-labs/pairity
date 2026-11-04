@@ -98,6 +98,15 @@ def _parser():
             selection = command.add_mutually_exclusive_group(required=True)
             selection.add_argument("--pair-id", action="append")
             selection.add_argument("--tag", action="append")
+    submit = commands.add_parser("submit", help="Submit a suite to an existing Databricks Job")
+    submit.add_argument("source")
+    submit.add_argument("--job-id", type=int, required=True)
+    submit.add_argument("--artifact-root", required=True)
+    submit.add_argument("--request-id", required=True, help="Stable unique submission token")
+    for name in ("job-status", "job-cancel"):
+        command = commands.add_parser(name)
+        command.add_argument("--job-id", type=int, required=True)
+        command.add_argument("--run-id", required=True)
     run = commands.add_parser("run", help="Compare Delta tables on the active Spark runtime")
     run.add_argument("source")
     run.add_argument("--max-parallel-pairs", type=int)
@@ -199,7 +208,32 @@ def _run(args):
 def main(argv=None):
     args = _parser().parse_args(argv)
     try:
-        if args.command == "init-postgres":
+        if args.command in {"submit", "job-status", "job-cancel"}:
+            from dataclasses import asdict
+
+            from databricks.sdk import WorkspaceClient
+
+            from pairity.artifacts import VolumeArtifactStore
+            from pairity.submission import DatabricksJobSubmitter, RunHandle, VolumeConfigPublisher
+
+            client = WorkspaceClient()
+            publisher = (
+                VolumeConfigPublisher(VolumeArtifactStore(args.artifact_root, client))
+                if args.command == "submit"
+                else None
+            )
+            submitter = DatabricksJobSubmitter(client, args.job_id, publisher)
+            if args.command == "submit":
+                handle = submitter.submit(_read(args.source), request_id=args.request_id)
+                _display(asdict(handle), args.json)
+            else:
+                handle = RunHandle("databricks-jobs", args.run_id)
+                if args.command == "job-cancel":
+                    submitter.cancel(handle)
+                    _display({"cancel_requested": args.run_id}, args.json)
+                else:
+                    _display(submitter.status(handle), args.json)
+        elif args.command == "init-postgres":
             _postgres_documents().initialize()
             _display({"initialized": "postgres"}, args.json)
         elif args.command == "init-results":

@@ -60,3 +60,33 @@ def test_volume_rejects_non_volume_and_traversal_roots():
     for root in ("/tmp/artifacts", "/Volumes/c/s/v/../other", "/Volumes/c/s"):
         with pytest.raises(ValueError):
             VolumeArtifactStore(root, None)
+
+
+def test_execution_registry_reuses_first_manifest_without_repinning():
+    from databricks.sdk.errors import AlreadyExists, NotFound
+
+    from pairity.artifacts import VolumeArtifactStore, VolumeExecutionRegistry
+
+    class SDKFiles(Files):
+        def download(self, file_path):
+            if file_path not in self.data:
+                raise NotFound(file_path)
+            return super().download(file_path)
+
+        def upload(self, file_path, contents, *, overwrite):
+            if file_path in self.data:
+                raise AlreadyExists(file_path)
+            return super().upload(file_path, contents, overwrite=overwrite)
+
+    files = SDKFiles()
+    store = VolumeArtifactStore("/Volumes/c/s/v", SimpleNamespace(files=files))
+    registry = VolumeExecutionRegistry(store)
+    calls = []
+
+    def publish():
+        calls.append(1)
+        return store.publish("job:1", {"execution.json": b'{"version":7}'})
+
+    first = registry.get_or_create("job:1", publish)
+    assert registry.get_or_create("job:1", publish) == first
+    assert calls == [1]
