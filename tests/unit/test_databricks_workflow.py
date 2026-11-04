@@ -226,5 +226,6 @@ def test_workflow_uses_selective_scopes_in_cli_and_sdk(monkeypatch):
         "jobs",
         "sql",
         "unity-catalog",
+        "workspace",
     }
     assert "all-apis" not in client.config.get_scopes_as_string()
