@@ -65,6 +65,21 @@ def render_report(report, console=None):
             for detail in _normalization_details(pair):
                 console.print(Text(f"{_safe(pair['pair_id'])}: {_safe(detail)}"))
         console.print(Text(f"Suite status: {_safe(report['status'])}"))
+    elif "history" in report:
+        table = Table("Run", "Suite", "Status", "Finished", title="Pairity · run history")
+        for item in report["history"]:
+            table.add_row(
+                *[
+                    Text(_safe(item.get(k, "—")))
+                    for k in ("run_id", "suite", "status", "finished_at")
+                ]
+            )
+        console.print(table)
+    elif "suites" in report:
+        table = Table("Suite", "Revision", "Pairs", title="Pairity · suites")
+        for item in report["suites"]:
+            table.add_row(*[Text(_safe(item[k])) for k in ("suite", "revision", "pairs")])
+        console.print(table)
     elif "preview" in report:
         table = Table("Pair", "Change", title="Pairity · configuration update")
         for change, names in report["preview"].items():
@@ -120,6 +135,37 @@ def create_report_app(report):
                 ),
                 text(detail).auto(),
                 label("[dim]↑/↓ select a pair · q quit[/]").auto(),
+            ]
+        ).on_key("q", lambda context: context.quit())
+
+    return App(build)
+
+
+def create_history_app(reports):
+    from rs_rich.tui import App, Column, Size, column, label, signal, table, text
+
+    if not reports:
+        raise ValueError("No completed runs to inspect")
+    for report in reports:
+        _rows(report)
+
+    def build():
+        selected = signal(0)
+
+        def details():
+            report = reports[selected.get()]
+            return "\n".join(" · ".join(escape(value) for value in row) for row in _rows(report))
+
+        return column(
+            [
+                label("[bold magenta]Pairity[/] · run history").auto(),
+                table(
+                    [Column(name, Size.Auto) for name in ("Run", "Suite", "Status")],
+                    [[escape(_safe(r[k])) for k in ("run_id", "suite", "status")] for r in reports],
+                    selected,
+                ),
+                text(details).auto(),
+                label("[dim]↑/↓ select a run · pair counts below · q quit[/]").auto(),
             ]
         ).on_key("q", lambda context: context.quit())
 

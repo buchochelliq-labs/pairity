@@ -10,3 +10,7 @@ dist/
 spark-warehouse/
 metastore_db/
 derby.log
+app/build/
+app/ui/node_modules/
+src/pairity/web/static/
+.pairity-local/

@@ -1,0 +1,72 @@
+name: Deploy Pairity workbench
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pairity-workbench-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: Databricks-free
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/ui/package-lock.json
+      - run: npm ci && npm test && npm run build
+        working-directory: app/ui
+      - run: python scripts/build_app.py
+      - name: Install pinned Databricks CLI
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/databricks/cli/releases/download/v1.23.0/databricks_cli_1.23.0_linux_amd64.zip \
+            --output "$RUNNER_TEMP/databricks.zip"
+          unzip -q "$RUNNER_TEMP/databricks.zip" -d "$RUNNER_TEMP/databricks-cli"
+          chmod +x "$RUNNER_TEMP/databricks-cli/databricks"
+          echo "$RUNNER_TEMP/databricks-cli" >> "$GITHUB_PATH"
+      - name: Validate and deploy exact checkout
+        working-directory: app
+        env:
+          DATABRICKS_CONFIG_FILE: ${{ github.workspace }}/.github/databrickscfg
+          DATABRICKS_CONFIG_PROFILE: pairity-ci
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_AUTH_TYPE: oauth-m2m
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          BUNDLE_VAR_app_name: ${{ secrets.PAIRITY_APP_NAME }}
+          BUNDLE_VAR_warehouse_id: ${{ secrets.PAIRITY_SQL_WAREHOUSE_ID }}
+          BUNDLE_VAR_job_id: ${{ secrets.PAIRITY_JOB_ID }}
+          BUNDLE_VAR_result_table: ${{ secrets.PAIRITY_RESULT_TABLE }}
+          BUNDLE_VAR_artifact_root: ${{ secrets.PAIRITY_ARTIFACT_ROOT }}
+          BUNDLE_VAR_postgres_secret_scope: ${{ secrets.PAIRITY_POSTGRES_SECRET_SCOPE }}
+          BUNDLE_VAR_postgres_secret_key: ${{ secrets.PAIRITY_POSTGRES_SECRET_KEY }}
+          BUNDLE_VAR_postgres_schema: ${{ secrets.PAIRITY_POSTGRES_SCHEMA || 'pairity' }}
+        run: |
+          python - <<'PY'
+          import os
+          required = ['DATABRICKS_HOST', 'DATABRICKS_CLIENT_ID', 'DATABRICKS_CLIENT_SECRET',
+                      'BUNDLE_VAR_app_name', 'BUNDLE_VAR_warehouse_id', 'BUNDLE_VAR_job_id',
+                      'BUNDLE_VAR_result_table', 'BUNDLE_VAR_artifact_root',
+                      'BUNDLE_VAR_postgres_secret_scope', 'BUNDLE_VAR_postgres_secret_key']
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit('Missing environment secrets for: ' + ', '.join(missing))
+          PY
+          databricks bundle validate --target workspace
+          databricks bundle deploy --target workspace
+          databricks bundle run --target workspace workbench

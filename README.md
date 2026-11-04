@@ -87,3 +87,7 @@ python -m build
 The tests include real Spark comparisons, barrier-proven concurrent execution, per-worker Spark context isolation, JSON/YAML equivalence, revision conflicts and an intuiTUIve navigation/quit test.
 
 See [architecture and plugins](docs/architecture.md) and [configuration schema](schema/pairity.schema.json).
+
+## Workbench and evidence
+
+The [Databricks workbench](docs/workbench.md) adds configuration upload/editing, parallel Job submission, run history and incident downloads over the same core. See [incident exports](docs/incidents.md) and the [expanded qualification matrix](docs/config-qualification.md). Live deployment of these additions is a separate release gate.

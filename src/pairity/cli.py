@@ -107,6 +107,29 @@ def _parser():
         command = commands.add_parser(name)
         command.add_argument("--job-id", type=int, required=True)
         command.add_argument("--run-id", required=True)
+    suites = commands.add_parser("suites", help="List revisioned suite configurations")
+    suites.add_argument("--store-root", required=True, help="Local catalog root or postgres:")
+    for name in ("history", "result"):
+        cmd = commands.add_parser(name, help="Read persisted Delta results via SQL")
+        cmd.add_argument("--result-table", required=True)
+        cmd.add_argument("--warehouse-id", required=True)
+        if name == "history":
+            cmd.add_argument("--suite")
+            cmd.add_argument("--limit", type=int, default=50)
+            cmd.add_argument("--interactive", action="store_true")
+        else:
+            cmd.add_argument("--run-id", required=True)
+            cmd.add_argument("--output")
+    incident = commands.add_parser("incident", help="Export a saved report as an incident ZIP")
+    incident.add_argument("source", help="Saved result JSON from pairity result or run --output")
+    incident.add_argument("--output", required=True)
+    incident.add_argument("--pair-id", action="append")
+    incident.add_argument("--artifact-root", help="Also publish files to an existing UC Volume")
+    selection = submit.add_mutually_exclusive_group()
+    selection.add_argument("--pair-id", action="append")
+    selection.add_argument("--tag", action="append")
+    submit.add_argument("--watch", action="store_true")
+    submit.add_argument("--timeout", type=int, default=1200, help="Maximum status wait in seconds")
     run = commands.add_parser("run", help="Compare Delta tables on the active Spark runtime")
     run.add_argument("source")
     run.add_argument("--max-parallel-pairs", type=int)
@@ -224,8 +247,26 @@ def main(argv=None):
             )
             submitter = DatabricksJobSubmitter(client, args.job_id, publisher)
             if args.command == "submit":
-                handle = submitter.submit(_read(args.source), request_id=args.request_id)
+                from pairity.bulk import select_pairs
+
+                config = _read(args.source)
+                selected = select_pairs(config, args.pair_id, args.tag)
+                config = SuiteConfig.model_validate(
+                    config.model_dump(exclude_none=True)
+                    | {"pairs": [p.model_dump(exclude_none=True) for p in selected]}
+                )
+                handle = submitter.submit(config, request_id=args.request_id)
                 _display(asdict(handle), args.json)
+                if args.watch:
+                    from pairity.monitor import watch_run
+
+                    status = watch_run(
+                        submitter,
+                        handle,
+                        timeout=args.timeout,
+                        emit=lambda state: _display(state, args.json),
+                    )
+                    return 0 if status["status"] == "passed" else 1
             else:
                 handle = RunHandle("databricks-jobs", args.run_id)
                 if args.command == "job-cancel":
@@ -233,6 +274,60 @@ def main(argv=None):
                     _display({"cancel_requested": args.run_id}, args.json)
                 else:
                     _display(submitter.status(handle), args.json)
+        elif args.command == "suites":
+            from pairity.workbench import FileSuiteCatalog, PostgresSuiteCatalog, Workbench
+
+            catalog = (
+                PostgresSuiteCatalog(_postgres_documents())
+                if args.store_root == "postgres:"
+                else FileSuiteCatalog(args.store_root)
+            )
+            _display({"suites": Workbench(catalog).list_suites()}, args.json)
+        elif args.command in {"history", "result"}:
+            from databricks.sdk import WorkspaceClient
+
+            from pairity.web.storage import SqlQuery, SqlResultReader
+
+            reader = SqlResultReader(
+                SqlQuery(WorkspaceClient(), args.warehouse_id), args.result_table
+            )
+            if args.command == "result":
+                report = reader.load(args.run_id)["report"]
+                if args.output:
+                    _json(report, args.output)
+                _display(report, args.json)
+            else:
+                reports = reader.history(suite=args.suite, limit=args.limit)
+                if args.interactive:
+                    from pairity.terminal import create_history_app
+
+                    create_history_app(reports).run()
+                else:
+                    _display({"history": reports}, args.json)
+        elif args.command == "incident":
+            from pairity.incidents import IncidentExporter
+
+            files = IncidentExporter().export(
+                _read(args.source, document=True), pair_ids=args.pair_id
+            )
+            # Exclusive creation prevents overwriting an existing evidence archive.
+            with open(args.output, "xb") as stream:
+                stream.write(IncidentExporter.zip_bytes(files))
+            result = {"archive": args.output, "files": len(files)}
+            if args.artifact_root:
+                from dataclasses import asdict
+
+                from databricks.sdk import WorkspaceClient
+
+                from pairity.artifacts import VolumeArtifactStore
+
+                report = _read(args.source, document=True)
+                result["artifact"] = asdict(
+                    VolumeArtifactStore(args.artifact_root, WorkspaceClient()).publish(
+                        report["run_id"], {"incident.zip": IncidentExporter.zip_bytes(files)}
+                    )
+                )
+            _display(result, args.json)
         elif args.command == "init-postgres":
             _postgres_documents().initialize()
             _display({"initialized": "postgres"}, args.json)
@@ -261,7 +356,7 @@ def main(argv=None):
         elif args.command == "convert":
             _output(dump_config(_read(args.source), args.format), args.output)
         elif args.command == "export":
-            config = FileConfigStore(args.store).load(args.revision).config
+            config = _config_store(args.store).load(args.revision).config
             _output(dump_config(config, args.format), args.output)
         elif args.command in ("import", "patch"):
             _bulk(args)

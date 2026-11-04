@@ -1,0 +1,29 @@
+# Opt-in only; bundle inclusion does not run this Job.
+targets:
+  free_test:
+    resources:
+      jobs:
+        config_qualification:
+          name: pairity-config-qualification
+          max_concurrent_runs: 1
+          timeout_seconds: 1800
+          parameters:
+            - name: artifact_root
+              default: ${var.artifact_root}
+            - name: test_id
+              default: unset
+          environments:
+            - environment_key: pairity
+              spec:
+                environment_version: '5'
+                dependencies:
+                  - ../dist/*.whl
+                  - databricks-sdk==0.160.0
+          tasks:
+            - task_key: qualify
+              environment_key: pairity
+              notebook_task:
+                notebook_path: ../notebooks/config_qualification.py
+                base_parameters:
+                  artifact_root: "{{job.parameters.artifact_root}}"
+                  test_id: "{{job.parameters.test_id}}"

@@ -166,3 +166,36 @@ def test_import_new_template_into_existing_suite_and_preview_template_change(tmp
     path.write_text(json.dumps(config))
     assert main(command[:-1] + ["2"]) == 0
     assert json.loads(capsys.readouterr().out)["suite_settings_changed"] is True
+
+
+def test_incident_download_and_volume_publish_use_nested_archive(tmp_path, monkeypatch, capsys):
+    import databricks.sdk
+    from test_incidents import report
+
+    from pairity.artifacts import LocalArtifactStore
+
+    local = LocalArtifactStore(tmp_path / "volume")
+    monkeypatch.setattr(databricks.sdk, "WorkspaceClient", lambda: object())
+    monkeypatch.setattr("pairity.artifacts.VolumeArtifactStore", lambda root, client: local)
+    source = tmp_path / "report.json"
+    source.write_text(json.dumps(report()))
+    output = tmp_path / "incident.zip"
+    assert (
+        main(
+            [
+                "--json",
+                "incident",
+                str(source),
+                "--output",
+                str(output),
+                "--artifact-root",
+                "/Volumes/c/s/v",
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    from pairity.artifacts import ArtifactBundle
+
+    files = local.download(ArtifactBundle(**result["artifact"]))
+    assert files == {"incident.zip": output.read_bytes()}

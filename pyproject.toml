@@ -13,12 +13,18 @@ dependencies = ["pydantic>=2.10,<3", "PyYAML>=6.0.2,<7", "rs-rich==0.0.12"]
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
 databricks = ["databricks-sdk>=0.72,<1"]
+artifacts = ["Pillow>=10,<13"]
+app = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "databricks-sdk==0.160.0", "psycopg[binary]>=3.2,<4", "Pillow>=10,<13"]
 spark = ["pyspark>=3.5,<4"]
-dev = ["pytest>=8,<10", "ruff>=0.14,<1", "build>=1.2,<2", "jsonschema>=4.23,<5"]
+dev = ["pytest>=8,<10", "ruff>=0.14,<1", "build>=1.2,<2", "jsonschema>=4.23,<5", "httpx>=0.27,<1"]
 
 [project.scripts]
 pairity = "pairity.cli:main"
+pairity-app = "pairity.web.app:main"
 pairity-job = "pairity.cli:job_main"
+
+[tool.hatch.build]
+artifacts = ["src/pairity/web/static/**"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pairity"]
