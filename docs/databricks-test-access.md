@@ -23,6 +23,23 @@ policy and client ID, or `pat` with the `DATABRICKS_TOKEN` secret. A configured 
 is only passed when PAT authentication is explicitly selected, avoiding conflicts
 with the default OAuth mode. Never paste credentials into issues, configs or chat.
 
+## OAuth scopes
+
+The workflow selects the `pairity-ci` profile in `.github/databrickscfg` for both
+bundle CLI commands and the Python smoke runner. It explicitly requests these
+six scopes: `apps`, `bundle-deployments`, `databricks-connect`, `jobs`, `sql`, and
+`unity-catalog`. Update that profile to change the scope policy. It contains no
+credentials; the existing GitHub environment secrets remain the credential source.
+An explicit profile is necessary because the pinned SDKs do not read scopes from
+an environment variable. Without configured scopes they default to `all-apis`.
+
+The service principal's OAuth credential must allow all six requested scopes.
+The workflow does not broaden its request or fall back to `all-apis` on denial.
+These scopes limit API access; the workspace, Job and Unity Catalog grants below
+are still required. Job notebooks retain their Databricks-provided authentication
+and Run as identity. Successful token issuance alone does not prove every bundle
+or Volume operation is permitted; the live smoke run validates those operations.
+
 ## Permissions
 
 | Resource | Deployment / fixture setup | Comparison Job |
