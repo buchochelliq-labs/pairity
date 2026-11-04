@@ -40,19 +40,63 @@ class FileResultReader:
         return {"report": matches[0]}
 
 
-class AppSubmitter:
-    """Caller identity submits and observes; the app only publishes immutable config."""
+class JobAuthorization:
+    """Check caller Job ACLs before using the App's Jobs API access.
 
-    def __init__(self, submitter, observer):
-        self.submitter, self.observer = submitter, observer
+    App user tokens support SQL, not Jobs/permissions REST scopes. The App reads
+    the runner ACL; group membership is evaluated by SQL as the verified caller.
+    Missing ACLs, unknown grants and failed lookups never authorize an operation.
+    """
+
+    def __init__(self, client, job_id, user, query):
+        self.client, self.job_id, self.user, self.query = client, job_id, user, query
+
+    def __call__(self, operation):
+        if operation not in {"view", "manage"}:
+            raise ValueError("Unknown Job operation")
+        allowed = {"CAN_MANAGE_RUN", "CAN_MANAGE", "IS_OWNER"}
+        if operation == "view":
+            allowed.add("CAN_VIEW")
+        permissions = self.client.permissions.get(
+            request_object_type="jobs", request_object_id=str(self.job_id)
+        )
+        for entry in permissions.access_control_list or []:
+            levels = {
+                p.permission_level.value
+                for p in entry.all_permissions or []
+                if p.permission_level is not None
+            }
+            if not levels.intersection(allowed):
+                continue
+            if entry.user_name == self.user:
+                return
+            if entry.group_name:
+                rows = self.query(
+                    "SELECT is_member(:group_name) AS allowed", {"group_name": entry.group_name}
+                )
+                if len(rows) == 1 and (
+                    rows[0].get("allowed") is True or rows[0].get("allowed") == "true"
+                ):
+                    return
+        raise HTTPException(403, "Your Job permissions do not allow this operation")
+
+
+class AppSubmitter:
+    """App executes Job APIs only after checking caller permissions on that runner."""
+
+    def __init__(self, submitter, observer, authorize):
+        self.submitter, self.observer, self.authorize = submitter, observer, authorize
 
     def submit(self, config, *, request_id):
+        self.authorize("manage")
         return self.submitter.submit(config, request_id=request_id)
 
     def status(self, handle):
+        self.authorize("view")
         return self.observer.status(handle)
 
     def cancel(self, handle):
+        self.authorize("manage")
         return self.observer.cancel(handle)
 
 
@@ -102,8 +146,9 @@ def service_for_request(request):
     artifacts = VolumeArtifactStore(os.environ["PAIRITY_ARTIFACT_ROOT"], app_client)
     job_id = int(os.environ["PAIRITY_JOB_ID"])
     submitter = AppSubmitter(
-        DatabricksJobSubmitter(caller, job_id, VolumeConfigPublisher(artifacts)),
-        DatabricksJobSubmitter(caller, job_id, None),
+        DatabricksJobSubmitter(app_client, job_id, VolumeConfigPublisher(artifacts)),
+        DatabricksJobSubmitter(app_client, job_id, None),
+        JobAuthorization(app_client, job_id, user, query),
     )
     return user, Workbench(
         PostgresSuiteCatalog(documents),

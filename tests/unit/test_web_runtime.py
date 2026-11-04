@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 
-def test_hosted_submission_uses_caller_identity_and_no_privileged_fallback(monkeypatch):
+def test_hosted_submission_requires_caller_acl_before_app_identity_execution(monkeypatch):
     import databricks.sdk
     from test_workbench import suite
 
@@ -13,7 +13,10 @@ def test_hosted_submission_uses_caller_identity_and_no_privileged_fallback(monke
     caller = SimpleNamespace(
         current_user=SimpleNamespace(me=lambda: SimpleNamespace(user_name="user"))
     )
-    privileged = SimpleNamespace(files=object())
+    privileged = SimpleNamespace(
+        files=object(),
+        permissions=SimpleNamespace(get=lambda **kw: SimpleNamespace(access_control_list=[])),
+    )
     clients = []
 
     def client(**kwargs):
@@ -36,16 +39,19 @@ def test_hosted_submission_uses_caller_identity_and_no_privileged_fallback(monke
     )
     assert user == "user"
     assert clients[0]["auth_type"] == "pat"
-    assert workbench.submitter.submitter.client is caller
-    assert workbench.submitter.observer.client is caller
+    assert workbench.submitter.submitter.client is privileged
+    assert workbench.submitter.observer.client is privileged
 
     def denied(**kwargs):
         raise PermissionError("Caller cannot manage Job runs")
 
-    caller.jobs = SimpleNamespace(run_now=denied)
+    privileged.jobs = SimpleNamespace(run_now=denied)
     workbench.submitter.submitter.config_publisher = lambda c: "/Volumes/c/s/v/config.json"
-    with pytest.raises(PermissionError):
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
         workbench.submitter.submit(suite(), request_id="denied")
+    assert exc.value.status_code == 403
 
 
 def test_local_reader_can_load_older_than_history_limit(tmp_path):
