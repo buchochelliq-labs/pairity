@@ -223,6 +223,7 @@ def test_workflow_uses_selective_scopes_in_cli_and_sdk(monkeypatch):
         "apps",
         "bundle-deployments",
         "databricks-connect",
+        "files",
         "jobs",
         "sql",
         "unity-catalog",
