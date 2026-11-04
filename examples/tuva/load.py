@@ -39,11 +39,11 @@ def frames(spark, root=ROOT):
     return result
 
 
-def load_fixture(spark, catalog, schema, *, root=ROOT):
+def load_fixture(spark, catalog, schema, *, root=ROOT, table_prefix="tuva"):
     """Requires an existing sandbox schema. Never overwrite existing tables."""
     root = Path(root)
     data = frames(spark, root)
-    targets = {key: f"{catalog}.{schema}.tuva_{key[0]}_{key[1]}" for key in data}
+    targets = {key: f"{catalog}.{schema}.{table_prefix}_{key[0]}_{key[1]}" for key in data}
     # Validate every identifier and refuse pre-existing targets before writing any table.
     quoted = {key: quote_table(name) for key, name in targets.items()}
     existing = [name for key, name in targets.items() if spark.catalog.tableExists(quoted[key])]

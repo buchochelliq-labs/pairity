@@ -55,8 +55,26 @@ PAIRITY_ARTIFACT_ROOT=/Volumes/workspace/pairity_test/artifacts
 PAIRITY_RESULT_TABLE=workspace.pairity_test.results
 ```
 
-Create the environment as `databricks-dev` (or provide its chosen name). Initial
-workflow runs are manual. Use concurrency 2. No SQL warehouse ID is required:
+The configured GitHub environment is **`Databricks-free`**. Once the workflow is
+merged to main, open **Actions → Databricks Free Edition smoke tests → Run workflow**
+and choose main. It is manual and main-only. Protect this environment to allow
+only main deployments; the workflow does not inspect or print secret values.
+
+The workflow checks the required variables/secrets, builds the checked-out wheel,
+deploys the `free_test` bundle target, then runs fixture setup, the identical
+suite, the changed suite and a Delta-result verifier. Expected regression Job
+failure alone is insufficient: all counts, statuses and source snapshot identities
+must match, and the Jobs timeline must show peak pair-task overlap of two.
+Reports and Job links are uploaded as a 14-day Actions artifact.
+
+Each invocation uses `gha_<run_id>_<attempt>` table prefixes and a separate Volume
+subdirectory. Synthetic tables, configs and results are retained for investigation;
+cleanup is deliberately not automatic. Remove only that run's fixture tables and
+Volume subdirectory when finished; the shared result table is not a cleanup target.
+The workflow does not create schemas, Volumes or grants. Full failure/permission
+qualification in #9 extends beyond these initial two-suite smoke tests.
+
+ Use concurrency 2. No SQL warehouse ID is required:
 these are serverless notebook/Job tasks. Postgres/Lakebase access is not needed for
 file-based comparison tests; it becomes necessary when testing hosted app state.
 Optional full row-evidence persistence additionally requires the serverless

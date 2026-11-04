@@ -1,7 +1,16 @@
 bundle:
   name: pairity
 
+include:
+  - resources/free-test.yml
+
 variables:
+  test_catalog:
+    description: Existing catalog used only by the free_test target
+    default: workspace
+  test_schema:
+    description: Existing test schema used only by the free_test target
+    default: pairity_test
   config_path:
     description: Existing workspace or Volume JSON/YAML suite file
   result_table:
