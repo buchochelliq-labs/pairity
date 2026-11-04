@@ -104,3 +104,14 @@ DataFrame caching capability described in deployment.md; summaries do not.
 - https://docs.databricks.com/aws/en/jobs/privileges
 - https://docs.databricks.com/aws/en/data-governance/unity-catalog/access-control/privileges-reference
 - https://docs.databricks.com/gcp/en/volumes/privileges
+
+## Inspecting existing runs
+
+For API/timeline troubleshooting, dispatch the same workflow with `inspect_run_ids`
+set to comma-separated existing parent Job run IDs (at most ten). This mode skips
+preflight, deployment, fixture setup and Job execution. It only reads run metadata
+and publishes `run-inspection.json` plus the same JSON in the Actions log. The
+report includes requested/returned run IDs, task keys, result states, iteration
+counts and timings; it excludes parameters, notebook output and source paths.
+Leave the input blank to run the full smoke test. A successful inspection means
+metadata was retrieved, not that the comparison results or parallelism passed.

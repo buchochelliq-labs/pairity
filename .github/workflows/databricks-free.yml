@@ -2,6 +2,11 @@ name: Databricks Free Edition smoke tests
 
 on:
   workflow_dispatch:
+    inputs:
+      inspect_run_ids:
+        description: 'Optional: comma-separated existing Job run IDs; inspect only, no deployment'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -35,6 +40,7 @@ jobs:
           echo "$RUNNER_TEMP/databricks-cli" >> "$GITHUB_PATH"
       - name: Validate, deploy and test exact checkout
         env:
+          PAIRITY_INSPECT_RUNS: ${{ inputs.inspect_run_ids }}
           DATABRICKS_CONFIG_FILE: ${{ github.workspace }}/.github/databrickscfg
           DATABRICKS_CONFIG_PROFILE: pairity-ci
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -47,6 +53,10 @@ jobs:
           PAIRITY_ARTIFACT_ROOT: ${{ secrets.PAIRITY_ARTIFACT_ROOT }}
           PAIRITY_RESULT_TABLE: ${{ secrets.PAIRITY_RESULT_TABLE }}
         run: |
+          if [ -n "$PAIRITY_INSPECT_RUNS" ]; then
+            python scripts/databricks_smoke.py --inspect-runs "$PAIRITY_INSPECT_RUNS"
+            exit 0
+          fi
           python scripts/databricks_preflight.py
           export BUNDLE_VAR_test_catalog="$PAIRITY_CATALOG"
           export BUNDLE_VAR_test_schema="$PAIRITY_SCHEMA"

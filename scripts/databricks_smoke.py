@@ -29,6 +29,49 @@ def run(client, job_id, parameters, expected, records):
     return run_id
 
 
+def run_metadata(run):
+    """Export timing/identity only, excluding parameters, source paths and notebook output."""
+    raw = run.as_dict()
+    fields = ("run_id", "task_key", "start_time", "end_time", "attempt_number")
+
+    def task_metadata(task):
+        item = {key: task[key] for key in fields if key in task}
+        item["result_state"] = task.get("state", {}).get("result_state")
+        return item
+
+    return {
+        **task_metadata(raw),
+        "tasks": [task_metadata(t) for t in raw.get("tasks", [])],
+        "iterations": [task_metadata(t) for t in raw.get("iterations", [])],
+        "iteration_count": len(raw.get("iterations", [])),
+    }
+
+
+def inspect_runs(client, run_ids, output):
+    """Read existing runs without deploying or executing Jobs."""
+    reports = []
+    try:
+        for run_id in run_ids:
+            report = {"requested_run_id": run_id, "foreach": []}
+            reports.append(report)
+            parent = client.jobs.get_run(run_id=run_id)
+            report["parent"] = run_metadata(parent)
+            for task in parent.tasks or []:
+                if task.task_key != "comparisons" or task.run_id is None:
+                    continue
+                child = client.jobs.get_run(run_id=task.run_id)
+                report["foreach"].append(
+                    {
+                        "requested_run_id": task.run_id,
+                        **run_metadata(child),
+                    }
+                )
+    finally:
+        content = json.dumps(reports, indent=2) + "\n"
+        (output / "run-inspection.json").write_text(content)
+        print(content)
+
+
 def overlap(client, run_id):
     parent = client.jobs.get_run(run_id=run_id)
     tasks = [t for t in (parent.tasks or []) if t.task_key == "comparisons"]
@@ -36,7 +79,10 @@ def overlap(client, run_id):
         raise ValueError("Missing For each task run")
     iterations = client.jobs.get_run(run_id=tasks[0].run_id).iterations or []
     if len(iterations) != 4:
-        raise ValueError("Expected four pair iterations")
+        raise ValueError(
+            f"Expected four pair iterations for Job run {run_id}, "
+            f"For each run {tasks[0].run_id}; API returned {len(iterations)}"
+        )
     events = []
     for task in iterations:
         if not task.start_time or not task.end_time or task.end_time <= task.start_time:
@@ -59,13 +105,24 @@ def overlap(client, run_id):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--summary", required=True)
-    parser.add_argument("--test-id", required=True)
-    parser.add_argument("--artifact-root", required=True)
+    parser.add_argument("--summary")
+    parser.add_argument("--inspect-runs", help="Comma-separated existing run IDs; read-only")
+    parser.add_argument("--test-id")
+    parser.add_argument("--artifact-root")
     parser.add_argument("--output", default="smoke-output")
     args = parser.parse_args()
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
+    if args.inspect_runs is not None:
+        values = args.inspect_runs.split(",")
+        if not 1 <= len(values) <= 10 or any(
+            not v.strip().isascii() or not v.strip().isdigit() or int(v) <= 0 for v in values
+        ):
+            parser.error("--inspect-runs requires 1..10 positive run IDs separated by commas")
+        inspect_runs(WorkspaceClient(), [int(v) for v in values], output)
+        return
+    if not all((args.summary, args.test_id, args.artifact_root)):
+        parser.error("--summary, --test-id and --artifact-root are required for smoke execution")
     jobs = json.loads(Path(args.summary).read_text())["resources"]["jobs"]
     client = WorkspaceClient()
     records = []
