@@ -92,3 +92,21 @@ def test_postgres_preserves_json_numeric_representation(document_store):
     assert loaded.payload == payload
     assert isinstance(loaded.payload["large"], float)
     assert math.copysign(1, loaded.payload["negative_zero"]) == -1
+
+
+def test_repeated_concurrent_initialization_preserves_documents(pg_connect):
+    from pairity.postgres import PostgresDocumentStore
+
+    document_store = PostgresDocumentStore(pg_connect, schema="test_" + uuid4().hex)
+    gate = Barrier(2)
+
+    def initialize(_):
+        gate.wait(timeout=5)
+        document_store.initialize()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(initialize, range(2)))
+    document_store.save("settings", "preserved", {"value": 42}, expected_revision=0)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda _: document_store.initialize(), range(2)))
+    assert document_store.load("settings", "preserved").payload == {"value": 42}

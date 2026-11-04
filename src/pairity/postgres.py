@@ -46,6 +46,11 @@ class PostgresDocumentStore:
     def initialize(self):
         """Explicit provisioning operation; normal reads/writes never perform DDL."""
         with self.connect() as connection, connection.transaction():
+            # Serialize bootstrap across App instances; IF NOT EXISTS alone races on DDL.
+            connection.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                ("pairity.initialize." + self.schema,),
+            )
             connection.execute(
                 sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self.schema))
             )
