@@ -45,8 +45,14 @@ The deployer needs authority to attach those resources and grant the App access.
 
 Users need access to the App, SQL warehouse, source tables and result table. Reads
 use the forwarded user access token, and each report checks source access before
-returning evidence. Job submission, status and cancellation use user identity. Operators must have
-CAN_MANAGE_RUN on the configured Job; source SELECT alone cannot launch it. Jobs
+returning evidence. Job API calls use the App identity because Jobs is not a supported App user scope.
+Before each call, Pairity reads the configured runner's ACL and checks the verified
+caller's direct grants or group membership (using caller-authorized SQL `is_member`).
+Status requires CAN_VIEW or higher; submission and cancellation require
+CAN_MANAGE_RUN, CAN_MANAGE or IS_OWNER. Failed permission reads deny the operation;
+source SELECT alone cannot launch a Job. The App needs permission to read the
+runner ACL as well as manage its runs. Groups not visible to the caller's SQL session
+are conservatively denied; use an explicit user grant if necessary. Jobs
 execute as their configured run-as principal, so source row filters and masks may
 differ from an operator's interactive view. Only grant this App and its result table
 to trusted operators authorized for that run-as data scope. Configuration state is
@@ -55,7 +61,10 @@ Deploy separate instances/databases for separate trust groups. The application m
 be behind the Databricks authenticated proxy; do not expose hosted mode directly.
 
 Enable [user authorization](https://docs.databricks.com/aws/en/dev-tools/databricks-apps/auth)
-for the App with its declared identity-read, SQL, Jobs, Unity Catalog and workspace scopes. Resource permissions and OAuth scopes are separate requirements.
+for the App with the declared `sql` user scope. Identity defaults are managed by
+Databricks and must not be explicitly included in `user_api_scopes`. SQL covers
+source/metadata/result reads and group checks. Resource permissions and OAuth
+scopes are separate requirements.
 The CI service principal retains the repository's selective scopes, including files.
 
 ## GitHub Action

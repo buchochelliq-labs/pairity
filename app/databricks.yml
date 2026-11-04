@@ -33,13 +33,10 @@ resources:
       name: ${var.app_name}
       description: Pairity configuration, parallel regression runs and incident evidence
       source_code_path: ./build
+      # Only selectable App user scopes. Identity defaults are platform-managed.
+      # Jobs calls use the App identity behind an explicit caller Job-ACL check.
       user_api_scopes:
-        - iam.access-control:read
-        - iam.current-user:read
         - sql
-        - jobs
-        - unity-catalog
-        - workspace
       resources:
         - name: runner
           job:
