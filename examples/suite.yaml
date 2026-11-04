@@ -1,0 +1,25 @@
+schema_version: 1
+suite: release_regression
+execution:
+  max_parallel_pairs: 4
+defaults:
+  max_changed_rows: 0
+  max_missing_rows: 0
+  max_extra_rows: 0
+pairs:
+  - id: orders
+    baseline: prod.sales.orders
+    candidate: staging.sales.orders
+    keys:
+      - baseline: order_id
+        candidate: order_id
+    tags: [sales, release]
+  - id: order_lines
+    baseline: prod.sales.order_lines
+    candidate: staging.sales.order_lines
+    keys:
+      - baseline: order_id
+        candidate: order_id
+      - baseline: line_id
+        candidate: line_id
+    tags: [sales, release]

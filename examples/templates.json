@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "suite": "merged-orders",
+  "defaults": {
+    "column_policy": "common",
+    "implicit_casts": true,
+    "null_safe": true,
+    "exclude_columns": [
+      "loaded_at"
+    ],
+    "column_rules": {
+      "amount": {
+        "compare_as": "decimal(20,2)"
+      },
+      "external_code": {
+        "implicit_casts": false
+      },
+      "description": {
+        "null_safe": false
+      }
+    }
+  },
+  "templates": {
+    "merge_unique": {
+      "parameters": [
+        "current",
+        "archive"
+      ],
+      "source": {
+        "kind": "deduplicate",
+        "source": {
+          "kind": "union",
+          "sources": [
+            {
+              "kind": "parameter",
+              "name": "current"
+            },
+            {
+              "kind": "parameter",
+              "name": "archive"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "pairs": [
+    {
+      "id": "orders",
+      "baseline": {
+        "kind": "template",
+        "name": "merge_unique",
+        "inputs": {
+          "current": "prod.sales.orders",
+          "archive": {
+            "kind": "table",
+            "table": "prod.sales.orders_archive",
+            "version": 12
+          }
+        }
+      },
+      "candidate": "dev.sales.orders",
+      "keys": [
+        {
+          "baseline": "order_id",
+          "candidate": "order_id"
+        }
+      ]
+    }
+  ]
+}
