@@ -10,8 +10,8 @@ The `Databricks-free` environment uses a service principal with an OAuth client
 ID and secret. The workflow defaults to **`DATABRICKS_AUTH_TYPE=oauth-m2m`** and
 passes these settings to the Databricks CLI and SDK:
 
-- `DATABRICKS_HOST`: workspace URL, from an environment variable or secret.
-- `DATABRICKS_CLIENT_ID`: environment secret (or variable).
+- `DATABRICKS_HOST`: workspace URL, from an environment secret.
+- `DATABRICKS_CLIENT_ID`: environment secret.
 - `DATABRICKS_CLIENT_SECRET`: environment secret.
 
 No personal access token is required. The CLI/SDK obtain and refresh OAuth access
@@ -42,11 +42,11 @@ for these tests. The fixture loader owns its newly created tables; cleanup must
 be restricted to those fixture resources. Explicit PK mappings avoid requiring
 constraint discovery for this first fixture.
 
-Suggested GitHub environment variables (actual names/paths must be confirmed):
+GitHub environment secrets (use your actual resource names/paths):
 
 ```text
 DATABRICKS_HOST=https://<your-workspace-host>
-DATABRICKS_AUTH_TYPE=oauth-m2m    # default; optional variable override
+DATABRICKS_AUTH_TYPE=oauth-m2m    # default; optional secret override
 PAIRITY_CATALOG=workspace
 PAIRITY_SCHEMA=pairity_test
 PAIRITY_ARTIFACT_ROOT=/Volumes/workspace/pairity_test/artifacts
@@ -58,7 +58,7 @@ merged to main, open **Actions → Databricks Free Edition smoke tests → Run w
 and choose main. It is manual and main-only. Protect this environment to allow
 only main deployments; the workflow does not inspect or print secret values.
 
-The workflow checks the required variables/secrets, builds the checked-out wheel,
+The workflow checks the required environment secrets, builds the checked-out wheel,
 deploys the `free_test` bundle target, then runs fixture setup, the identical
 suite, the changed suite and a Delta-result verifier. Expected regression Job
 failure alone is insufficient: all counts, statuses and source snapshot identities
