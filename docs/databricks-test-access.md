@@ -27,13 +27,13 @@ with the default OAuth mode. Never paste credentials into issues, configs or cha
 
 The workflow selects the `pairity-ci` profile in `.github/databrickscfg` for both
 bundle CLI commands and the Python smoke runner. It explicitly requests these
-seven scopes: `apps`, `bundle-deployments`, `databricks-connect`, `jobs`, `sql`,
+eight scopes: `apps`, `bundle-deployments`, `databricks-connect`, `files`, `jobs`, `sql`,
 `unity-catalog`, and `workspace`. Update that profile to change the scope policy. It contains no
 credentials; the existing GitHub environment secrets remain the credential source.
 An explicit profile is necessary because the pinned SDKs do not read scopes from
 an environment variable. Without configured scopes they default to `all-apis`.
 
-The service principal's OAuth credential must allow all seven requested scopes.
+The service principal's OAuth credential must allow all eight requested scopes.
 The workflow does not broaden its request or fall back to `all-apis` on denial.
 These scopes limit API access; the workspace, Job and Unity Catalog grants below
 are still required. Job notebooks retain their Databricks-provided authentication
