@@ -91,6 +91,20 @@ class PostgresDocumentStore:
         if not isinstance(key, str) or not key or "\x00" in key:
             raise ValueError("A nonempty document key is required")
 
+    def keys(self, kind, *, limit=1000):
+        self._key(kind, "validation")
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("Document list limit must be 1..1000")
+        with self.connect() as connection:
+            rows = connection.execute(
+                sql.SQL(
+                    "SELECT document_key FROM {} WHERE kind = %s AND revision > 0 "
+                    "ORDER BY document_key LIMIT %s"
+                ).format(self._table("document_heads")),
+                (kind, limit),
+            ).fetchall()
+        return [row[0] for row in rows]
+
     def load(self, kind, key, *, revision=None):
         self._key(kind, key)
         if revision is not None and (type(revision) is not int or revision < 1):

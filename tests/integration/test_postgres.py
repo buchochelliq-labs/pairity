@@ -39,6 +39,8 @@ def test_revision_conflict_history_and_namespaces(document_store):
     assert store.load("settings", "ui").revision == 2
     store.save("schedule", "ui", {"cron": "0 0 * * *"}, expected_revision=0)
     assert store.load("schedule", "ui").revision == 1
+    assert store.keys("settings") == ["ui"]
+    assert store.keys("suite") == []
 
 
 def test_simultaneous_first_writers_only_one_wins(document_store):

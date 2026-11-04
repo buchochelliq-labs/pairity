@@ -2,17 +2,79 @@
 
 import argparse
 import json
+import os
+import re
 from datetime import timedelta
+from html import escape
 from pathlib import Path
 
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import OperationFailed
 
 
+def safe_error(value):
+    """Keep only a bounded error headline, never notebook output or traceback rows."""
+    text = str(value or "")
+    secrets = sorted(
+        (
+            value
+            for name, value in os.environ.items()
+            if value and re.search(r"TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY", name)
+        ),
+        key=len,
+        reverse=True,
+    )
+    for secret in secrets:
+        text = text.replace(secret, "[REDACTED]")
+    text = re.sub(r"(?i)(bearer\s+)[^\s,;]+", r"\1[REDACTED]", text)
+    # Multiline diagnostics may include source code, SQL results, or raw rows.
+    text = text.splitlines()[0] if text.splitlines() else ""
+    return text[:2048]
+
+
+def failure_diagnostics(client, result):
+    """Collect task errors, including failed retried For each attempts, best effort."""
+    failures = []
+    tasks = list(getattr(result, "tasks", None) or [])
+    for task in list(tasks):
+        if task.task_key == "comparisons" and task.run_id is not None:
+            try:
+                tasks.extend(client.jobs.get_run(run_id=task.run_id).iterations or [])
+            except Exception as exc:
+                failures.append(
+                    {
+                        "task_key": "comparisons",
+                        "run_id": task.run_id,
+                        "diagnostic_error": type(exc).__name__,
+                    }
+                )
+    for task in tasks:
+        state = task.state.result_state.value if task.state and task.state.result_state else None
+        if state in (None, "SUCCESS"):
+            continue
+        item = {
+            "task_key": safe_error(task.task_key),
+            "run_id": task.run_id,
+            "result": state,
+            "attempt_number": task.attempt_number,
+            "state_message": safe_error(task.state.state_message),
+            "url": safe_error(task.run_page_url or result.run_page_url),
+        }
+        failures.append(item)
+        if task.run_id is not None:
+            try:
+                # Deliberately exclude error_trace, logs and notebook_output.
+                item["error"] = safe_error(client.jobs.get_run_output(run_id=task.run_id).error)
+            except Exception as exc:
+                item["diagnostic_error"] = type(exc).__name__
+    return failures
+
+
 def run(client, job_id, parameters, expected, records):
     waiter = client.jobs.run_now(job_id=job_id, job_parameters=parameters)
     run_id = waiter.run_id
-    records.append({"job_id": job_id, "run_id": run_id, "expected": expected})
+    record = {"job_id": job_id, "run_id": run_id, "expected": expected}
+    records.append(record)
     try:
         waiter.result(timeout=timedelta(minutes=20))
     except TimeoutError:
@@ -21,11 +83,30 @@ def run(client, job_id, parameters, expected, records):
     except OperationFailed:
         # Regression failure is expected only if the final verifier certifies its evidence.
         pass
-    result = client.jobs.get_run(run_id=run_id)
-    state = result.state.result_state.value if result.state and result.state.result_state else None
-    records[-1].update(result=state, url=result.run_page_url)
+    finally:
+        try:
+            result = client.jobs.get_run(run_id=run_id)
+            state = (
+                result.state.result_state.value
+                if result.state and result.state.result_state
+                else None
+            )
+            record.update(
+                result=state,
+                url=safe_error(result.run_page_url),
+                state_message=safe_error(getattr(result.state, "state_message", None)),
+                failed_tasks=failure_diagnostics(client, result),
+            )
+        except Exception as exc:
+            record["diagnostic_error"] = type(exc).__name__
+        # JSON escapes newlines, preventing remote error text becoming Actions commands.
+        print("Databricks run: " + json.dumps(record))
+    state = record.get("result")
     if state != expected:
-        raise RuntimeError(f"Job {job_id} ended {state}; expected {expected}")
+        raise RuntimeError(
+            f"Job {job_id} ended {state}; expected {expected}; "
+            f"run {run_id}: {record.get('url', '')}; see failure-diagnostics.json"
+        )
     return run_id
 
 
@@ -168,8 +249,31 @@ def main():
         if len(data) > 2 * 1024 * 1024:
             raise ValueError("Smoke report unexpectedly exceeds 2 MiB")
         (output / "verified-results.json").write_bytes(data)
+        run(
+            client,
+            int(jobs["config_qualification"]["id"]),
+            {"test_id": args.test_id, "artifact_root": args.artifact_root},
+            "SUCCESS",
+            records,
+        )
+        response = client.files.download(directory + "/config-qualification.json")
+        if response.contents is None:
+            raise RuntimeError("No configuration qualification evidence")
+        with response.contents as stream:
+            qualification = stream.read(2 * 1024 * 1024 + 1)
+        if len(qualification) > 2 * 1024 * 1024:
+            raise ValueError("Configuration evidence exceeds 2 MiB")
+        (output / "config-qualification.json").write_bytes(qualification)
     finally:
-        (output / "job-runs.json").write_text(json.dumps(records, indent=2) + "\n")
+        content = json.dumps(records, indent=2) + "\n"
+        (output / "job-runs.json").write_text(content)
+        (output / "failure-diagnostics.json").write_text(content)
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            with Path(summary_path).open("a") as summary:
+                summary.write("\n### Databricks run diagnostics\n\n")
+                summary.write("Expected FAILED is regression evidence, not suite verification.\n")
+                summary.write("<pre>" + escape(content) + "</pre>\n")
 
 
 if __name__ == "__main__":

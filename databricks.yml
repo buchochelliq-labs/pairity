@@ -3,6 +3,7 @@ bundle:
 
 include:
   - resources/free-test.yml
+  - resources/config-qualification.yml
 
 variables:
   test_catalog:

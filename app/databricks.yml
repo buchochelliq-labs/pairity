@@ -1,0 +1,69 @@
+bundle:
+  name: pairity-workbench
+
+variables:
+  app_name:
+    description: Unique lowercase Databricks App name
+  warehouse_id:
+    description: Existing serverless SQL warehouse
+  job_id:
+    description: Existing Pairity regression Job ID
+  result_table:
+    description: Existing catalog.schema.results Delta table
+  artifact_root:
+    description: Existing /Volumes/catalog/schema/volume/prefix
+  postgres_secret_scope:
+    description: Existing secret scope containing the TLS Postgres connection string
+  postgres_secret_key:
+    description: Existing secret key for the initialized Pairity application database
+  postgres_schema:
+    default: pairity
+
+resources:
+  apps:
+    workbench:
+      name: ${var.app_name}
+      description: Pairity configuration, parallel regression runs and incident evidence
+      source_code_path: ./build
+      user_api_scopes:
+        - iam.access-control:read
+        - iam.current-user:read
+        - sql
+        - jobs
+        - unity-catalog
+        - workspace
+      resources:
+        - name: runner
+          job:
+            id: ${var.job_id}
+            permission: CAN_MANAGE_RUN
+        - name: warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: postgres-dsn
+          secret:
+            scope: ${var.postgres_secret_scope}
+            key: ${var.postgres_secret_key}
+            permission: READ
+      config:
+        command: [python, -c, 'from pairity.web.app import main; main()']
+        env:
+          - name: PAIRITY_APP_MODE
+            value: databricks
+          - name: PAIRITY_JOB_ID
+            value: ${var.job_id}
+          - name: PAIRITY_SQL_WAREHOUSE_ID
+            value: ${var.warehouse_id}
+          - name: PAIRITY_RESULT_TABLE
+            value: ${var.result_table}
+          - name: PAIRITY_ARTIFACT_ROOT
+            value: ${var.artifact_root}
+          - name: PAIRITY_POSTGRES_SCHEMA
+            value: ${var.postgres_schema}
+          - name: PAIRITY_POSTGRES_DSN
+            value_from: postgres-dsn
+
+targets:
+  workspace:
+    default: true

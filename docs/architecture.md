@@ -9,7 +9,7 @@ Pairity follows the architecture of [Databricks Labs DQX](https://github.com/dat
 | `DQEngineCore` applying checks to DataFrames | `ComparisonBackend`, initially `SparkComparisonBackend` |
 | `DQEngine` composing I/O, checks and results | `ComparisonRunner` and `PairityEngine` |
 | Workspace contexts and workflows | Composition in `create_spark_engine`, a Job entry point and deployment bundle |
-| Studio over the same library | Future Databricks App over these contracts; no duplicated comparison logic |
+| Studio over the same library | FastAPI/React workbench over shared services; no duplicated comparison logic |
 
 ```mermaid
 flowchart TD
@@ -22,7 +22,7 @@ flowchart TD
   Sources --> Reader["Snapshot reader"]
   Runner --> Compare["Comparison backend"]
   Engine --> Sink["Result sink"]
-  Engine --> UI["CLI / intuiTUIve / future App"]
+  Engine --> UI["CLI / intuiTUIve / App"]
 ```
 
 ## Plugins
@@ -67,14 +67,14 @@ See Spark's [concurrent job scheduling documentation](https://spark.apache.org/d
 
 ## Scope and next adapters
 
-- Configuration: local revisioned files now; distributed UC storage remains future work.
+- Configuration: revisioned local files and shared Postgres/Lakebase application state.
 - Comparisons: scalar exact equality and float/double tolerances now. Structs, arrays and maps block explicitly until comparator plugins implement their policies.
 - Decimal/integer comparisons preserve exact values. Nonzero tolerances for these types block until precision-safe policies are implemented.
-- Results: in-memory distributed differences and JSON summary export now; Delta history and bounded sample storage remain future work.
+- Results: Delta run envelopes and optional distributed differences, JSON export, SQL history reads and incident archives. Bounded historical sample retrieval remains future work.
 - Execution: bounded parallelism and failure isolation now; explicit cancellation, retry policies and remote backends remain tracked in #7.
 - CLI: rs-rich for reports and intuiTUIve for saved-report exploration. Both use the published `rs-rich` Python package backed by native Rust; Python Rich/Textual are not used.
 
-The user-facing Databricks App and workspace smoke verification remain separate milestones. The foundation is not a claim that those are already complete.
+The workbench is implemented separately from workspace deployment qualification. See [workbench setup and release gates](workbench.md).
 
 ## Hosted execution target
 

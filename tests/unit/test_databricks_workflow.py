@@ -363,3 +363,197 @@ def test_iteration_retries_are_not_extra_pairs_but_count_toward_parallelism(case
         message = "observed 3" if case == "overlap" else "four pair iterations"
         with pytest.raises(ValueError, match=message):
             script.overlap(client, 1)
+
+
+@pytest.mark.parametrize("expected", ["SUCCESS", "FAILED"])
+def test_failed_task_diagnostics_preserve_errors_without_outputs(monkeypatch, capsys, expected):
+    from databricks.sdk.errors import OperationFailed
+    from databricks.sdk.service.jobs import Run, RunOutput
+
+    script = module("scripts/databricks_smoke.py")
+    monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "configured-secret")
+
+    class Waiter:
+        run_id = 42
+
+        def result(self, **kwargs):
+            raise OperationFailed("parent failed")
+
+    class Jobs:
+        def run_now(self, **kwargs):
+            return Waiter()
+
+        def get_run(self, run_id):
+            return Run.from_dict(
+                {
+                    "run_id": run_id,
+                    "state": {"result_state": "FAILED"},
+                    "run_page_url": "https://example/jobs/1/runs/42",
+                    "tasks": [
+                        {
+                            "task_key": "aggregate",
+                            "run_id": 43,
+                            "state": {"result_state": "FAILED", "state_message": "Notebook failed"},
+                        },
+                        {
+                            "task_key": "comparisons",
+                            "run_id": 44,
+                            "state": {"result_state": "SUCCESS"},
+                        },
+                    ]
+                    if run_id == 42
+                    else [],
+                    "iterations": [
+                        {
+                            "task_key": "compare_pair",
+                            "run_id": 45,
+                            "attempt_number": 0,
+                            "state": {"result_state": "FAILED"},
+                        }
+                    ]
+                    if run_id == 44
+                    else [],
+                }
+            )
+
+        def get_run_output(self, run_id):
+            assert run_id in (43, 45)
+            return RunOutput.from_dict(
+                {
+                    "error": "ValueError: configured-secret invalid schema " + "x" * 5000,
+                    "error_trace": "raw-row-must-not-export",
+                    "notebook_output": {"result": "raw-row-must-not-export"},
+                }
+            )
+
+    records = []
+    if expected == "SUCCESS":
+        with pytest.raises(RuntimeError, match="expected SUCCESS"):
+            script.run(SimpleNamespace(jobs=Jobs()), 1, {}, expected, records)
+    else:
+        assert script.run(SimpleNamespace(jobs=Jobs()), 1, {}, expected, records) == 42
+    failures = records[0]["failed_tasks"]
+    assert {item["run_id"] for item in failures} == {43, 45}
+    assert failures[0]["task_key"] == "aggregate"
+    assert "ValueError:" in failures[0]["error"]
+    assert len(failures[0]["error"]) <= 2048
+    import json
+
+    exported = json.dumps(records) + capsys.readouterr().out
+    assert "configured-secret" not in exported
+    assert "raw-row-must-not-export" not in exported
+    assert "https://example/jobs/1/runs/42" in exported
+
+
+def test_smoke_persists_failure_diagnostics_when_setup_fails(monkeypatch, tmp_path, capsys):
+    import json
+
+    from databricks.sdk.service.jobs import Run
+
+    script = module("scripts/databricks_smoke.py")
+    summary = tmp_path / "summary.json"
+    summary.write_text(json.dumps({"resources": {"jobs": {"smoke_setup": {"id": "1"}}}}))
+    actions = tmp_path / "actions.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(actions))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "smoke",
+            "--summary",
+            str(summary),
+            "--test-id",
+            "test",
+            "--artifact-root",
+            "/Volumes/test",
+            "--output",
+            str(tmp_path),
+        ],
+    )
+    waiter = SimpleNamespace(run_id=42, result=lambda **kwargs: None)
+    jobs = SimpleNamespace(
+        run_now=lambda **kwargs: waiter,
+        get_run=lambda **kwargs: Run.from_dict(
+            {
+                "run_id": 42,
+                "state": {"result_state": "FAILED", "state_message": "Setup failed"},
+                "run_page_url": "https://example/run/42",
+            }
+        ),
+    )
+    monkeypatch.setattr(script, "WorkspaceClient", lambda: SimpleNamespace(jobs=jobs))
+    with pytest.raises(RuntimeError, match="expected SUCCESS"):
+        script.main()
+    persisted = json.loads((tmp_path / "failure-diagnostics.json").read_text())
+    assert persisted[0]["result"] == "FAILED"
+    assert persisted[0]["state_message"] == "Setup failed"
+    assert "https://example/run/42" in actions.read_text()
+    assert "FAILED" in capsys.readouterr().out
+
+
+def test_diagnostic_api_failure_does_not_mask_job_failure(monkeypatch):
+    from databricks.sdk.service.jobs import Run
+
+    script = module("scripts/databricks_smoke.py")
+    result = Run.from_dict(
+        {
+            "run_id": 42,
+            "state": {"result_state": "FAILED"},
+            "tasks": [
+                {
+                    "run_id": 43,
+                    "task_key": "aggregate",
+                    "state": {
+                        "result_state": "FAILED",
+                        "state_message": "ValueError: invalid schema\nprivate row",
+                    },
+                }
+            ],
+        }
+    )
+
+    def unavailable(**kwargs):
+        raise RuntimeError("credential details must not escape")
+
+    client = SimpleNamespace(
+        jobs=SimpleNamespace(
+            run_now=lambda **kwargs: SimpleNamespace(run_id=42, result=lambda **kwargs: None),
+            get_run=lambda **kwargs: result,
+            get_run_output=unavailable,
+        )
+    )
+    records = []
+    with pytest.raises(RuntimeError, match="expected SUCCESS"):
+        script.run(client, 1, {}, "SUCCESS", records)
+    failed = records[0]["failed_tasks"][0]
+    assert failed["state_message"] == "ValueError: invalid schema"
+    assert failed["diagnostic_error"] == "RuntimeError"
+    assert "credential details" not in str(records)
+
+
+def test_timeout_keeps_diagnostics_and_cancels_run():
+    from databricks.sdk.service.jobs import Run
+
+    script = module("scripts/databricks_smoke.py")
+    cancelled = []
+
+    def timeout(**kwargs):
+        raise TimeoutError("timed out")
+
+    client = SimpleNamespace(
+        jobs=SimpleNamespace(
+            run_now=lambda **kwargs: SimpleNamespace(run_id=42, result=timeout),
+            cancel_run=lambda run_id: cancelled.append(run_id),
+            get_run=lambda **kwargs: Run.from_dict(
+                {
+                    "run_id": 42,
+                    "state": {"life_cycle_state": "TERMINATING"},
+                    "run_page_url": "https://example/run/42",
+                }
+            ),
+        )
+    )
+    records = []
+    with pytest.raises(TimeoutError):
+        script.run(client, 1, {}, "SUCCESS", records)
+    assert cancelled == [42]
+    assert records[0]["url"] == "https://example/run/42"
