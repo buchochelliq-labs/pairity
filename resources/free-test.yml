@@ -1,0 +1,62 @@
+# Extra Jobs exist only when explicitly deploying the free_test target.
+targets:
+  free_test:
+    mode: development
+    resources:
+      jobs:
+        regression:
+          timeout_seconds: 1200
+        smoke_setup:
+          name: pairity-smoke-setup
+          max_concurrent_runs: 1
+          timeout_seconds: 1200
+          parameters:
+            - name: test_id
+              default: unset
+          environments:
+            - environment_key: pairity
+              spec:
+                environment_version: '5'
+                dependencies:
+                  - ../dist/*.whl
+                  - databricks-sdk==0.160.0
+          tasks:
+            - task_key: setup
+              environment_key: pairity
+              notebook_task:
+                notebook_path: ../notebooks/smoke_setup.py
+                base_parameters:
+                  fixture_root: ${workspace.file_path}/examples/tuva
+                  catalog: ${var.test_catalog}
+                  schema: ${var.test_schema}
+                  artifact_root: ${var.artifact_root}
+                  result_table: ${var.result_table}
+        smoke_verify:
+          name: pairity-smoke-verify
+          max_concurrent_runs: 1
+          timeout_seconds: 1200
+          parameters:
+            - name: test_id
+              default: unset
+            - name: identical_run_id
+              default: unset
+            - name: regression_run_id
+              default: unset
+          environments:
+            - environment_key: pairity
+              spec:
+                environment_version: '5'
+                dependencies:
+                  - ../dist/*.whl
+                  - databricks-sdk==0.160.0
+          tasks:
+            - task_key: verify
+              environment_key: pairity
+              notebook_task:
+                notebook_path: ../notebooks/smoke_verify.py
+                base_parameters:
+                  fixture_root: ${workspace.file_path}/examples/tuva
+                  artifact_root: ${var.artifact_root}
+                  result_table: ${var.result_table}
+                  catalog: ${var.test_catalog}
+                  schema: ${var.test_schema}
