@@ -30,7 +30,7 @@ pairity convert examples/suite.yaml --format json --output suite.json
 pairity --json validate suite.json
 ```
 
-On Databricks, install the built wheel **without the `spark` extra** so the platform's PySpark is retained. Local Spark tests use PySpark 3.5.8 and Java 17. The initial Databricks adapter targets classic Spark with pinned threads; Spark Connect/serverless requires a separate adapter and is not claimed as supported.
+On Databricks, install the built wheel **without the `spark` extra** so the platform's PySpark is retained. Local Spark tests use PySpark 3.5.8 and Java 17. Classic Spark uses pinned threads. The serverless bundle uses isolated Connect-compatible pair tasks and Job-level parallelism; live workspace qualification remains outstanding. See [deployment and submission methods](docs/deployment.md).
 
 ## Run comparisons
 

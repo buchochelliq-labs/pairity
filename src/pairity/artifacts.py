@@ -155,3 +155,47 @@ class VolumeArtifactStore(BundleStore):
         if len(data) > limit:
             raise ValueError("Artifact size exceeds manifest or configured limit")
         return data
+
+
+class VolumeExecutionRegistry:
+    """First-writer pointer to the immutable manifest for a logical Job run."""
+
+    def __init__(self, artifact_store):
+        self.store = artifact_store
+
+    def get_or_create(self, run_id, create):
+        from databricks.sdk.errors import AlreadyExists, NotFound
+
+        directory = self.store.root + "/executions"
+        path = directory + "/" + _digest(run_id.encode()) + ".json"
+
+        def read():
+            response = self.store.files.download(path)
+            if response.contents is None:
+                raise OSError("Execution pointer has no content")
+            with response.contents as stream:
+                data = stream.read(4097)
+            if len(data) > 4096:
+                raise ValueError("Execution pointer is too large")
+            pointer = json.loads(data)
+            if pointer["run_id"] != run_id:
+                raise ValueError("Execution pointer identity mismatch")
+            ref = ArtifactBundle(**pointer["reference"])
+            self.store.download(ref)
+            return ref
+
+        try:
+            return read()
+        except NotFound:
+            pass
+        from dataclasses import asdict
+
+        ref = create()
+        data = json.dumps({"run_id": run_id, "reference": asdict(ref)}).encode()
+        self.store.files.create_directory(directory)
+        try:
+            self.store.files.upload(path, io.BytesIO(data), overwrite=False)
+        except AlreadyExists:
+            # Another preparation attempt won; use its pinned manifest.
+            pass
+        return read()
