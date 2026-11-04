@@ -48,21 +48,13 @@ jobs:
           DATABRICKS_AUTH_TYPE: oauth-m2m
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
-          BUNDLE_VAR_app_name: ${{ secrets.PAIRITY_APP_NAME }}
-          BUNDLE_VAR_warehouse_id: ${{ secrets.PAIRITY_SQL_WAREHOUSE_ID }}
-          BUNDLE_VAR_job_id: ${{ secrets.PAIRITY_JOB_ID }}
           BUNDLE_VAR_result_table: ${{ secrets.PAIRITY_RESULT_TABLE }}
           BUNDLE_VAR_artifact_root: ${{ secrets.PAIRITY_ARTIFACT_ROOT }}
-          BUNDLE_VAR_postgres_secret_scope: ${{ secrets.PAIRITY_POSTGRES_SECRET_SCOPE }}
-          BUNDLE_VAR_postgres_secret_key: ${{ secrets.PAIRITY_POSTGRES_SECRET_KEY }}
-          BUNDLE_VAR_postgres_schema: ${{ secrets.PAIRITY_POSTGRES_SCHEMA || 'pairity' }}
         run: |
           python - <<'PY'
           import os
           required = ['DATABRICKS_HOST', 'DATABRICKS_CLIENT_ID', 'DATABRICKS_CLIENT_SECRET',
-                      'BUNDLE_VAR_app_name', 'BUNDLE_VAR_warehouse_id', 'BUNDLE_VAR_job_id',
-                      'BUNDLE_VAR_result_table', 'BUNDLE_VAR_artifact_root',
-                      'BUNDLE_VAR_postgres_secret_scope', 'BUNDLE_VAR_postgres_secret_key']
+                      'BUNDLE_VAR_result_table', 'BUNDLE_VAR_artifact_root']
           missing = [name for name in required if not os.environ.get(name)]
           if missing:
               raise SystemExit('Missing environment secrets for: ' + ', '.join(missing))

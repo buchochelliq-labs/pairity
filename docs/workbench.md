@@ -64,18 +64,39 @@ The CI service principal retains the repository's selective scopes, including fi
 environment. It builds/tests the frontend, assembles the exact checkout, validates
 and deploys `app/databricks.yml`, then starts the App. It does not execute comparisons.
 
-Existing environment secrets are reused: `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID`,
-`DATABRICKS_CLIENT_SECRET`, `PAIRITY_RESULT_TABLE`, `PAIRITY_ARTIFACT_ROOT`.
-Add these environment secrets for the App:
+Deployment configuration lives in `app/databricks.yml`, including per-target values.
+The Action no longer requires five additional GitHub environment secrets for the App.
 
-| Secret | Value |
+| Bundle variable | Configured value |
 |---|---|
-| `PAIRITY_APP_NAME` | Unique lowercase app name |
-| `PAIRITY_SQL_WAREHOUSE_ID` | Existing SQL warehouse ID |
-| `PAIRITY_JOB_ID` | Existing regression Job ID, not a run ID |
-| `PAIRITY_POSTGRES_SECRET_SCOPE` | Workspace scope containing the DSN |
-| `PAIRITY_POSTGRES_SECRET_KEY` | DSN secret key |
-| `PAIRITY_POSTGRES_SCHEMA` | Optional; defaults to `pairity` |
+| `app_name` | `pairity-workbench` |
+| `warehouse_name` | `Serverless Starter Warehouse`; change if your warehouse has another name |
+| `warehouse_id` | Resolved by name lookup; can be explicitly overridden |
+| `job_id` | `656591313118833` in the `workspace` target, the existing Free Edition regression Job |
+| `postgres_secret_scope` | `pairity` |
+| `postgres_secret_key` | `postgres-dsn` |
+| `postgres_schema` | `pairity` |
+
+The runner ID comes from successful smoke run 41833551263; update the target if the
+runner is recreated. It refers to an existing Job owned by the regression bundle,
+not a new Job managed by the App bundle. Warehouse lookup must resolve one existing
+warehouse; it does not create compute or silently select another warehouse.
+
+These names are deployment defaults, not proof the resources exist. Provision the
+initialized database and store its TLS connection string in Databricks Secrets at
+`pairity/postgres-dsn`, or edit the scope/key variables to reference your existing
+secret. Only the reference is committed; never put the DSN/password in bundle YAML.
+
+GitHub authentication still uses `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID` and
+`DATABRICKS_CLIENT_SECRET` from the existing environment. The Action also retains
+`PAIRITY_RESULT_TABLE` and `PAIRITY_ARTIFACT_ROOT` from the established smoke setup
+for compatibility. Those two are configuration, not credentials; they can later
+move to the target variables once their actual values are supplied. No additional
+GitHub secret is needed for the database connection string.
+
+Other deployments can override target variables or use the standard bundle `--var`
+and `BUNDLE_VAR_*` mechanisms. The Action intentionally does not inject empty
+optional environment values, which would override bundle defaults/lookups.
 
 Free Edition qualification of the comparison Job is separate from App deployment.
 The successful existing smoke does not establish availability of Postgres/Lakebase,
