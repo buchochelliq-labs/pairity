@@ -148,6 +148,34 @@ async function editor() {
   });
 }
 describe("workbench workflow", () => {
+  it("applies catalog keys to YAML and invalidates an existing preview", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((url: any, init: any) => {
+      if (String(url).includes("/discovery/")) {
+        const describe = (table: string) => ({ table, primary_key: ["version"],
+          columns: [{ name: "version", type: "INT", nullable: false }] });
+        const data = String(url).endsWith("/inspect") ? {
+          valid: true, key_origin: "declared", keys: [{ baseline: "version", candidate: "version" }],
+          baseline: describe("a.b.c"), candidate: describe("a.b.d"),
+          issues: [], casts: [], warnings: [], settings: { implicit_casts: true, null_safe: true },
+        } : { items: [], next_after: null };
+        return Promise.resolve({ ok: true, json: async () => data } as Response);
+      }
+      return original(url, init);
+    });
+    await editor();
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "yaml" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview changes" }));
+    await screen.findByText("Review changes");
+    fireEvent.click(screen.getByRole("button", { name: "Browse Unity Catalog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Inspect tables and keys" }));
+    await screen.findByText("Metadata checks passed");
+    fireEvent.click(screen.getByRole("button", { name: "Apply key mappings" }));
+    const text = (screen.getByLabelText("Configuration source") as HTMLTextAreaElement).value;
+    expect(parse(text).pairs[0].keys).toEqual([{ baseline: "version", candidate: "version" }]);
+    expect((screen.getByLabelText("Format") as HTMLSelectElement).value).toBe("yaml");
+    expect((screen.getByRole("button", { name: "Apply & save" }) as HTMLButtonElement).disabled).toBe(true);
+  });
   it("imports configuration text, edits, previews, saves, runs a snapshot and reviews unavailable counts", async () => {
     await editor();
     fireEvent.change(screen.getByLabelText("Candidate table"), {

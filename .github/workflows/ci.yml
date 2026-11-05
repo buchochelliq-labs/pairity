@@ -20,7 +20,7 @@ jobs:
             'pytest>=8,<10' 'httpx>=0.27,<1'
           python -m pip check
       - name: Test App and incident export with deployed dependency pins
-        run: python -m pytest tests/unit/test_app_database.py tests/unit/test_web_app.py tests/unit/test_incidents.py
+        run: python -m pytest tests/unit/test_app_database.py tests/unit/test_web_app.py tests/unit/test_pair_inspection.py tests/unit/test_discovery.py tests/unit/test_incidents.py
   verify:
     runs-on: ubuntu-latest
     services:

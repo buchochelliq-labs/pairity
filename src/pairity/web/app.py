@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +28,10 @@ class Document(Body):
 
 class Save(Document):
     expected_revision: int = Field(ge=0)
+
+
+class Inspect(Document):
+    pair_id: str = Field(min_length=1)
 
 
 class Preview(Save):
@@ -123,6 +127,44 @@ def create_app(service_factory=None, *, mode="databricks", static_dir=None):
     @app.get("/api/v1/schema")
     def schema(ctx=dependency):
         return configuration_schema()
+
+    @app.get("/api/v1/discovery/catalogs")
+    def catalogs(
+        search: str = Query(default="", max_length=256),
+        after: str = Query(default="", max_length=256),
+        limit: int = Query(default=50, ge=1, le=100),
+        ctx=dependency,
+    ):
+        return ctx[1].catalog_discovery().catalogs(search=search, after=after, limit=limit)
+
+    @app.get("/api/v1/discovery/schemas")
+    def schemas(
+        catalog: str,
+        search: str = Query(default="", max_length=256),
+        after: str = Query(default="", max_length=256),
+        limit: int = Query(default=50, ge=1, le=100),
+        ctx=dependency,
+    ):
+        return ctx[1].catalog_discovery().schemas(catalog, search=search, after=after, limit=limit)
+
+    @app.get("/api/v1/discovery/tables")
+    def tables(
+        catalog: str,
+        schema: str,
+        search: str = Query(default="", max_length=256),
+        after: str = Query(default="", max_length=256),
+        limit: int = Query(default=50, ge=1, le=100),
+        ctx=dependency,
+    ):
+        return (
+            ctx[1]
+            .catalog_discovery()
+            .tables(catalog, schema, search=search, after=after, limit=limit)
+        )
+
+    @app.post("/api/v1/discovery/inspect")
+    def inspect(body: Inspect, ctx=dependency):
+        return ctx[1].inspect_pair(body.content, body.format, body.pair_id)
 
     @app.get("/api/v1/suites")
     def suites(ctx=dependency):

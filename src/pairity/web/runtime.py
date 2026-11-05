@@ -115,6 +115,7 @@ def service_for_request(request):
     from databricks.sdk import WorkspaceClient
 
     from pairity.artifacts import VolumeArtifactStore
+    from pairity.discovery import UnityCatalogDiscovery
     from pairity.metadata import UnityCatalogMetadata
     from pairity.submission import DatabricksJobSubmitter, VolumeConfigPublisher
     from pairity.web.database import application_documents
@@ -144,9 +145,11 @@ def service_for_request(request):
         DatabricksJobSubmitter(app_client, job_id, None),
         JobAuthorization(app_client, job_id, user, query),
     )
+    metadata = UnityCatalogMetadata(metadata_query)
     return user, Workbench(
         PostgresSuiteCatalog(documents),
-        metadata=UnityCatalogMetadata(metadata_query),
+        metadata=metadata,
+        discovery=UnityCatalogDiscovery(query, metadata),
         submitter=submitter,
         results=SqlResultReader(query, os.environ["PAIRITY_RESULT_TABLE"]),
         authorize_sources=source_authorizer(query),
