@@ -159,6 +159,10 @@ pins are separate from the general library's optional dependency ranges.
 
 After bundle deployment, the workbench Action inspects the App's actual Lakebase
 binding and checks that its endpoint and database belong to the same branch.
+CLI 1.23.0 leaves resource-output references in `bundle summary` unresolved, so
+the check resolves the endpoint's project reference using the deployed project's
+resource ID before comparing branches. Missing deployment state or unresolved
+endpoint configuration fails separately from an actual branch mismatch.
 Using the deployer's existing OAuth identity, it opens a read-only database
 connection and checks privileges **for the App's PostgreSQL role**: database
 CONNECT/CREATE, existing schema USAGE/CREATE, and the operations needed on existing
