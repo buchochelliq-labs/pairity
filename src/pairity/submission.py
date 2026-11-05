@@ -96,10 +96,10 @@ class DatabricksJobSubmitter:
         return run
 
     def status(self, handle):
+        from pairity.job_progress import TERMINAL, job_progress, state_values
+
         run = self._run(handle)
-        state = run.state
-        lifecycle = state.life_cycle_state.value if state and state.life_cycle_state else "UNKNOWN"
-        result = state.result_state.value if state and state.result_state else None
+        lifecycle, result = state_values(run)
         status = {"SUCCESS": "passed", "CANCELED": "cancelled"}.get(result)
         if status is None:
             status = (
@@ -117,6 +117,11 @@ class DatabricksJobSubmitter:
             "lifecycle": lifecycle,
             "result_state": result,
             "url": run.run_page_url,
+            "done": lifecycle in TERMINAL or result is not None,
+            "start_time": getattr(run, "start_time", None),
+            "end_time": getattr(run, "end_time", None),
+            "result_run_id": f"job:{handle.run_id}",
+            "progress": job_progress(self.client, run, self.job_id),
         }
 
     def cancel(self, handle):

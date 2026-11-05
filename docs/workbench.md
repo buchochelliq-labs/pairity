@@ -147,7 +147,55 @@ After deployment, check upload -> preview -> save -> run -> history -> incident 
 using two authorized users, a stale revision, and a user without source access.
 These workflow and permission checks remain required release gates.
 
+## Run analysis and monitor progress
+
+Save a configuration revision, then choose **Run saved suite**, **Run selected
+pairs** or **Run tagged pairs**. The analysis dialog opens during submission and
+shows the run ID, saved revision, elapsed time, Job stage and comparison-task
+progress. The Job remains responsible for executing comparisons in parallel.
+
+Stages follow Databricks metadata: queued, preparing, comparing, saving results,
+cancelling and finished. Counts come from ForEach statistics, which count only
+the latest retries. The attempt table can show multiple attempts for a pair;
+those rows are not added together to calculate progress. Pair labels use the
+submitted snapshot's indexes and resolved notebook parameters, never the order
+of an API response. Completed tasks do not establish a passing regression:
+disabled pairs can complete with a skipped result, and failing tasks can
+represent regressions, blocked comparisons or execution errors.
+
+Unknown progress is indeterminate. There is no estimated row percentage or ETA.
+Completing all comparison tasks does not mark the Job complete while aggregation
+is still saving results. Metadata reads are bounded to three iteration pages
+(300 attempts); incomplete or temporarily unavailable details are labelled and
+the Databricks run link remains available. No source rows, task inputs or raw
+notebook error output are returned by the progress endpoint.
+
+**Minimize** (or Escape) keeps monitoring in the current tab. **Show progress**
+reopens the dialog without resubmitting. Closing/reloading the browser stops this
+tab's monitor but does not cancel the Job. Polling is sequential and reports
+monitoring failures separately from Job failures; **Retry status** never submits
+another run. The most recent status update is shown alongside elapsed time.
+
+**Cancel run** sends one cancellation request and keeps monitoring until Databricks
+reports a terminal state. A rejected request can be retried. **View results**
+loads the persisted `job:<run-id>` report through the existing caller-authorized
+endpoint. If a failed/cancelled Job never saved its aggregate report, or the caller
+cannot read it, the dialog shows the failure and allows an explicit retry; it
+does not manufacture an empty report. Submission failures are shown immediately;
+check Jobs before submitting again if a transport failure left the outcome unclear.
+
+The initial implementation and live qualification are tracked in #52. Verify
+parallel execution, cancellation, failed preparation, result loading and denied
+Job/report access in the Databricks-free environment after deployment.
+
 ## Discover table pairs and primary keys
+
+The next UX iteration in #50 replaces the sequential dropdowns with a dedicated
+Catalog Explorer-style tree and search-results view with a **Compare with…** action.
+No public native menu extension was found in the [Catalog Explorer documentation](https://docs.databricks.com/aws/en/catalog-explorer/).
+An optional browser extension could provide a [browser context-menu action](https://developer.chrome.com/docs/extensions/reference/api/contextMenus)
+that opens a preselected table in Pairity; it would require installation and is
+separate from a native UC integration.
 
 In a configuration's pair editor, choose **Browse Unity Catalog**. Browse each
 side independently through catalog, schema and table. Search filters names

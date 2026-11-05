@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { parse, stringify } from "yaml";
 import { api, encoded, pretty, Config, Pair } from "./api";
 import { CatalogPairEditor } from "./CatalogPairEditor";
+import { RunProgressDialog, useAnalysisRun } from "./RunProgress";
 import "./style.css";
 const initial: Config = {
   schema_version: 1,
@@ -47,8 +48,7 @@ export function App() {
     [patch, setPatch] = useState('{"enabled": false}'),
     [patchPreview, setPatchPreview] = useState<any>(null),
     [tags, setTags] = useState(""),
-    [detail, setDetail] = useState<any>(null),
-    [job, setJob] = useState<any>(null);
+    [detail, setDetail] = useState<any>(null);
   let config: Config | null = null;
   try {
     const parsed = format === "yaml" ? parse(text) : JSON.parse(text);
@@ -114,56 +114,16 @@ export function App() {
           .join("; "),
       );
   };
+  const analysis = useAnalysisRun({
+    onReport: (report) => { setDetail(report); setView("Run history"); },
+    onFinished: () => { void refresh().catch(e => setError((e as Error).message)); },
+  });
   useEffect(() => {
     void act(async () => {
       setSession(await api("/session"));
       await refresh();
     });
   }, []);
-  useEffect(() => {
-    if (!job?.run_id || job.done) return;
-    let stopped = false;
-    const poll = async () => {
-      try {
-        if (job.backend === "databricks-jobs") {
-          const state = await api(`/jobs/${encoded(String(job.run_id))}`);
-          if (stopped) return;
-          setJob((j: any) => ({ ...j, ...state, run_id: j.run_id }));
-          if (
-            ["TERMINATED", "SKIPPED", "INTERNAL_ERROR"].includes(
-              state.lifecycle,
-            ) ||
-            [
-              "passed",
-              "failed",
-              "blocked",
-              "error",
-              "cancelled",
-              "canceled",
-            ].includes(state.status)
-          ) {
-            setJob((j: any) => ({ ...j, done: true }));
-            await refresh();
-          }
-        } else {
-          const result = await api(`/runs/${encoded(String(job.run_id))}`);
-          if (!stopped) {
-            setDetail(result);
-            setJob((j: any) => ({ ...j, done: true, status: result.status }));
-            await refresh();
-          }
-        }
-      } catch (e) {
-        if (!stopped) setError((e as Error).message);
-      }
-    };
-    void poll();
-    const timer = setInterval(poll, 3000);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  }, [job?.run_id, job?.done]);
   function edit(value: string) {
     setText(value);
     setPreview(null);
@@ -820,19 +780,13 @@ export function App() {
                 </label>
                 <button
                   className="primary"
-                  disabled={busy || revision === null || !savedName || dirty}
+                  disabled={busy || analysis.active || revision === null || !savedName || dirty}
                   onClick={() =>
-                    void act(async () => {
-                      const d = await api(`${suitePath}/runs`, {
-                        revision,
-                        request_id: crypto.randomUUID(),
-                        ...(selected.length ? { pair_ids: selected } : {}),
-                        ...(tagList().length ? { tags: tagList() } : {}),
-                      });
-                      setJob(d);
-                      setNotice(`Run submitted: ${d.run_id}`);
-                      setView("Run history");
-                      await refresh();
+                    void analysis.start(`${suitePath}/runs`, {
+                      revision,
+                      request_id: crypto.randomUUID(),
+                      ...(selected.length ? { pair_ids: selected } : {}),
+                      ...(tagList().length ? { tags: tagList() } : {}),
                     })
                   }
                 >
@@ -918,40 +872,15 @@ export function App() {
             </div>
           </div>
         )}
+        {analysis.run && !analysis.open && (
+          <div className="run-progress-launcher">
+            <span>Analysis: {analysis.run.status}</span>
+            <button onClick={analysis.show}>Show progress</button>
+          </div>
+        )}
+        <RunProgressDialog analysis={analysis} />
         {view === "Run history" && (
           <>
-            {job && (
-              <section className="panel">
-                <div className="section-heading">
-                  <h2>Run progress</h2>
-                  <Badge value={job.status || "submitted"} />
-                </div>
-                <p>
-                  Run {job.run_id} · {job.backend}{" "}
-                  {job.lifecycle && `· ${job.lifecycle}`}
-                </p>
-                {job.url && /^https:\/\//.test(job.url) && (
-                  <a href={job.url} target="_blank" rel="noreferrer">
-                    Open Databricks job ↗
-                  </a>
-                )}
-                {job.backend === "databricks-jobs" && !job.done && (
-                  <button
-                    onClick={() =>
-                      void act(async () => {
-                        await api(
-                          `/jobs/${encoded(String(job.run_id))}/cancel`,
-                          {},
-                        );
-                        setNotice("Cancellation requested");
-                      })
-                    }
-                  >
-                    Cancel run
-                  </button>
-                )}
-              </section>
-            )}
             <section className="panel">
               <div className="section-heading">
                 <h2>Comparison runs</h2>
