@@ -2,6 +2,11 @@ name: Deploy Pairity workbench
 
 on:
   workflow_dispatch:
+    inputs:
+      logs_only:
+        description: Read current App logs without deploying or restarting
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,13 +29,16 @@ jobs:
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
+        if: ${{ !inputs.logs_only }}
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: app/ui/package-lock.json
       - run: npm ci && npm test && npm run build
+        if: ${{ !inputs.logs_only }}
         working-directory: app/ui
       - run: python scripts/build_app.py
+        if: ${{ !inputs.logs_only }}
       - name: Install pinned Databricks CLI
         run: |
           curl --fail --silent --show-error --location \
@@ -39,7 +47,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/databricks.zip" -d "$RUNNER_TEMP/databricks-cli"
           chmod +x "$RUNNER_TEMP/databricks-cli/databricks"
           echo "$RUNNER_TEMP/databricks-cli" >> "$GITHUB_PATH"
-      - name: Validate and deploy exact checkout
+      - name: Deploy App or read runtime logs
         working-directory: app
         env:
           DATABRICKS_CONFIG_FILE: ${{ github.workspace }}/.github/databrickscfg
@@ -50,6 +58,7 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
           BUNDLE_VAR_result_table: ${{ secrets.PAIRITY_RESULT_TABLE }}
           BUNDLE_VAR_artifact_root: ${{ secrets.PAIRITY_ARTIFACT_ROOT }}
+          PAIRITY_LOGS_ONLY: ${{ inputs.logs_only }}
         run: |
           python - <<'PY'
           import os
@@ -59,6 +68,20 @@ jobs:
           if missing:
               raise SystemExit('Missing environment secrets for: ' + ', '.join(missing))
           PY
+          if [[ "$PAIRITY_LOGS_ONLY" == "true" ]]; then
+            # CLI bundle discovery checks this local path even when only reading logs.
+            mkdir -p build
+            timeout 60s databricks apps logs --target workspace --tail-lines 200
+            exit 0
+          fi
           databricks bundle validate --target workspace
           databricks bundle deploy --target workspace
-          databricks bundle run --target workspace workbench
+          if databricks bundle run --target workspace workbench; then
+            exit 0
+          else
+            deployment_status=$?
+            echo 'App startup failed; collecting the last 200 runtime log lines.'
+            timeout 60s databricks apps logs --target workspace --tail-lines 200 || \
+              echo 'Runtime log collection failed; open the App Logs tab in Databricks.'
+            exit "$deployment_status"
+          fi
