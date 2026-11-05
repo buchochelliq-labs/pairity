@@ -163,6 +163,12 @@ CLI 1.23.0 leaves resource-output references in `bundle summary` unresolved, so
 the check resolves the endpoint's project reference using the deployed project's
 resource ID before comparing branches. Missing deployment state or unresolved
 endpoint configuration fails separately from an actual branch mismatch.
+The Action logs the endpoint from the bundle summary and the resolved endpoint
+used by its check. The App logs the received `PAIRITY_LAKEBASE_ENDPOINT` before
+validating database settings, so a startup failure preserves the actual value.
+Values are JSON-quoted to expose whitespace; an unset value appears as `null`.
+Only this resource path is logged, not connection strings or credentials. If
+the Action's runtime-log stream fails, read the startup value in the App Logs tab.
 Using the deployer's existing OAuth identity, it opens a read-only database
 connection and checks privileges **for the App's PostgreSQL role**: database
 CONNECT/CREATE, existing schema USAGE/CREATE, and the operations needed on existing

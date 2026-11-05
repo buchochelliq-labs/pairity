@@ -115,7 +115,16 @@ def main():
         summary = json.loads(Path(sys.argv[1]).read_text())
         app = summary["resources"]["apps"]["workbench"]
         env = {item["name"]: item.get("value") for item in app["config"]["env"]}
-        endpoint_name = resolve_endpoint_name(summary, env.get("PAIRITY_LAKEBASE_ENDPOINT"))
+        configured_endpoint = env.get("PAIRITY_LAKEBASE_ENDPOINT")
+        print(
+            "Pairity Lakebase endpoint (bundle summary): " + json.dumps(configured_endpoint),
+            flush=True,
+        )
+        endpoint_name = resolve_endpoint_name(summary, configured_endpoint)
+        print(
+            "Pairity Lakebase endpoint (deployment check): " + json.dumps(endpoint_name),
+            flush=True,
+        )
         result = check_resources(
             WorkspaceClient(),
             connect,

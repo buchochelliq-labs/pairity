@@ -1,11 +1,21 @@
 """Explicit deployed-App startup: initialize state before serving any requests."""
 
+import json
+import os
+
 
 def main():
     from pairity.web.app import main as serve
     from pairity.web.database import application_documents, database_failure
 
     stage = "database configuration"
+    if os.environ.get("PAIRITY_DATABASE_AUTH") == "lakebase":
+        # JSON quoting keeps whitespace visible and prevents multiline log entries.
+        print(
+            "Pairity Lakebase endpoint (app startup): "
+            + json.dumps(os.environ.get("PAIRITY_LAKEBASE_ENDPOINT")),
+            flush=True,
+        )
     try:
         documents = application_documents()
         stage = "schema initialization"
