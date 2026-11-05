@@ -157,6 +157,14 @@ type/code, never the credential itself, and fails if either request fails.
 Authentication/transport errors do not prove that an endpoint format was rejected.
 This probe does not deploy the App, connect to PostgreSQL, or change its resources.
 
+For the current Free Edition startup test, the App bundle temporarily sets
+`PAIRITY_LAKEBASE_ENDPOINT` to the literal
+`projects/pairity-state/branches/production/endpoints/primary`, which issued a
+credential in the live probe. This bypasses resource-output substitution in the
+App environment. If `lakebase_project_id` is overridden, update this literal to
+match before deploying; the branch-consistency check still rejects a mismatch.
+Startup logging remains enabled to verify the value received by the App.
+
 The deployed pip environment uses Python 3.11. Its pre-installed Gradio and
 Streamlit require Pillow below 11, so the App pins Pillow 10.4.0. The App also
 pins OpenTelemetry API 1.42.1 to match the observed SDK 1.42.1 and semantic

@@ -82,7 +82,9 @@ resources:
           - name: PAIRITY_DATABASE_AUTH
             value: lakebase
           - name: PAIRITY_LAKEBASE_ENDPOINT
-            value: ${resources.postgres_projects.state.name}/branches/production/endpoints/primary
+            # Temporary Free Edition test: use the endpoint verified by the SDK probe.
+            # Update this literal too if lakebase_project_id changes.
+            value: projects/pairity-state/branches/production/endpoints/primary
 
 targets:
   workspace:
