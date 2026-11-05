@@ -142,7 +142,13 @@ def test_summary_check_resolves_project_output_before_checking_app_branch(
 
     assert endpoints == ["projects/pairity/branches/production/endpoints/primary"]
     assert queries[0][1] == ("app-client-id",)
-    assert "CONNECT/CREATE verified" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert f"Pairity Lakebase endpoint (bundle summary): {json.dumps(endpoint)}" in output
+    assert (
+        "Pairity Lakebase endpoint (deployment check): "
+        '"projects/pairity/branches/production/endpoints/primary"'
+    ) in output
+    assert "CONNECT/CREATE verified" in output
 
 
 @pytest.mark.parametrize("project_id", [None, "", "pairity", "${var.project}"])

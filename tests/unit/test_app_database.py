@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -134,6 +135,37 @@ def test_bootstrap_initializes_before_serving_and_fails_closed(monkeypatch, caps
         main()
     assert not events
     assert "must-not-expose-password" not in str(exc.value) + capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        None,
+        "${resources.postgres_projects.state.name}/branches/production/endpoints/primary",
+        "bad\nendpoint",
+    ],
+)
+def test_bootstrap_logs_received_endpoint_before_configuration_failure(
+    monkeypatch, capsys, endpoint
+):
+    from pairity.web.bootstrap import main
+
+    for name, value in environment().items():
+        monkeypatch.setenv(name, value)
+    if endpoint is None:
+        monkeypatch.delenv("PAIRITY_LAKEBASE_ENDPOINT")
+    else:
+        monkeypatch.setenv("PAIRITY_LAKEBASE_ENDPOINT", endpoint)
+    monkeypatch.setenv("PAIRITY_POSTGRES_DSN", "must-not-expose-dsn")
+    monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "must-not-expose-secret")
+    monkeypatch.setattr(
+        "pairity.web.app.main", lambda: pytest.fail("Invalid database configuration must not serve")
+    )
+    with pytest.raises(SystemExit, match="Pairity database initialization failed"):
+        main()
+
+    lines = capsys.readouterr().out.splitlines()
+    assert lines == [f"Pairity Lakebase endpoint (app startup): {json.dumps(endpoint)}"]
 
 
 def test_bundle_provisions_state_and_binds_database_without_password():
