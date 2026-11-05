@@ -1,0 +1,13 @@
+bundle:
+  name: pairity-simple-app
+
+resources:
+  apps:
+    simple:
+      name: pairity-simple
+      description: Minimal Pairity deployment check
+      source_code_path: ./src
+
+targets:
+  workspace:
+    default: true

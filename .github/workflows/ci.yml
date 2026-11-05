@@ -35,8 +35,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - run: python -m pip install -e '.[dev,postgres,databricks,app,artifacts]' 'pyspark==3.5.8' 'delta-spark==3.3.2'
-      - run: ruff check src tests examples/tuva scripts notebooks
-      - run: ruff format --check src tests examples/tuva scripts notebooks
+      - run: ruff check src tests examples/tuva scripts notebooks app/simple
+      - run: ruff format --check src tests examples/tuva scripts notebooks app/simple
       - run: python -m pytest
         env:
           SPARK_LOCAL_IP: 127.0.0.1
@@ -48,6 +48,7 @@ jobs:
       - run: npm ci && npm test && npm run build
         working-directory: app/ui
       - run: python scripts/build_app.py
+      - run: python app/simple/test_app.py
       - run: python -m build
       - run: pairity --json validate examples/suite.yaml
       - run: pairity --json validate examples/suite.json
