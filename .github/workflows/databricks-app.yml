@@ -43,7 +43,7 @@ jobs:
         working-directory: app
         env:
           DATABRICKS_CONFIG_FILE: ${{ github.workspace }}/.github/databrickscfg
-          DATABRICKS_CONFIG_PROFILE: pairity-ci
+          DATABRICKS_CONFIG_PROFILE: pairity-app-ci
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_AUTH_TYPE: oauth-m2m
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}

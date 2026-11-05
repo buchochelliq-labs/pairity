@@ -113,12 +113,11 @@ def service_for_request(request):
     if not token:
         raise HTTPException(401, "Databricks user authentication is required")
     from databricks.sdk import WorkspaceClient
-    from psycopg import connect
 
     from pairity.artifacts import VolumeArtifactStore
     from pairity.metadata import UnityCatalogMetadata
-    from pairity.postgres import PostgresDocumentStore
     from pairity.submission import DatabricksJobSubmitter, VolumeConfigPublisher
+    from pairity.web.database import application_documents
     from pairity.web.storage import SqlQuery, SqlResultReader, source_authorizer
 
     # Force PAT strategy for the short-lived forwarded token, never the app's OAuth identity.
@@ -136,13 +135,8 @@ def service_for_request(request):
             row | {"ordinal_position": int(row["ordinal_position"])} for row in query(sql, params)
         ]
 
-    dsn = os.environ.get("PAIRITY_POSTGRES_DSN")
-    if not dsn:
-        raise ValueError("PAIRITY_POSTGRES_DSN is required; initialize Postgres before deployment")
-    documents = PostgresDocumentStore(
-        lambda: connect(dsn), schema=os.environ.get("PAIRITY_POSTGRES_SCHEMA", "pairity")
-    )
     app_client = WorkspaceClient()
+    documents = application_documents(client=app_client)
     artifacts = VolumeArtifactStore(os.environ["PAIRITY_ARTIFACT_ROOT"], app_client)
     job_id = int(os.environ["PAIRITY_JOB_ID"])
     submitter = AppSubmitter(

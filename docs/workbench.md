@@ -27,20 +27,35 @@ Adapters are constructor-injected through `Workbench`; comparison logic stays in
 
 ## Deployment prerequisites
 
-Use an existing Pairity regression Job, initialized result table, UC artifact Volume,
-serverless SQL warehouse, and reachable Postgres database. The application does not
-create a database or provision broad catalog grants. Initialize application tables
-using `PAIRITY_POSTGRES_DSN=... pairity init-postgres` with a provisioning identity,
-then store the runtime TLS connection string in a Databricks secret. Use the same
-`PAIRITY_POSTGRES_SCHEMA` during provisioning and runtime (default `pairity`).
-The runtime database identity needs access to the existing Pairity application tables;
-see [storage](storage.md). Dynamic Lakebase credential refresh is not built in: provide
-a supported connection factory or a managed credential rotation arrangement.
+Use an existing Pairity regression Job, initialized result table, UC artifact Volume
+and serverless SQL warehouse. The App bundle provisions its own Lakebase project
+`pairity-state`, using the project's implicit production branch, primary endpoint
+and `databricks_postgres` database. Compute is capped at 0.5 CU and suspends after
+five idle minutes. The bundle protects the project against accidental destruction.
+Free Edition permits only one Lakebase project: this setup assumes that slot is
+unused. If one already exists, stop and configure an explicit attachment instead
+of creating a second project or deleting existing data.
+
+The deployer must be allowed to create a Lakebase project and manage it to attach
+its database to the App. The `pairity-app-ci` OAuth profile includes `postgres`
+for provisioning; the existing smoke-test profile is unchanged. The database
+resource creates the App's PostgreSQL role and grants CONNECT/CREATE. Databricks
+injects PGHOST, PGUSER, PGDATABASE, PGPORT and PGSSLMODE. Pairity generates a fresh
+short-lived database credential for each connection using the App identity.
+No `postgres-dsn` secret or permanent database password is required.
+
+The deployed startup command explicitly initializes Pairity's schema/tables before
+serving requests. Initialization is transactional, serialized across App instances
+with a PostgreSQL advisory lock, and preserves existing document revisions. An
+initialization failure prevents startup. Normal requests do not perform DDL.
+Connection factories stay replaceable: non-Lakebase deployments may use
+`PAIRITY_DATABASE_AUTH=dsn` with `PAIRITY_POSTGRES_DSN` supplied securely and the
+existing `pairity init-postgres` provisioning command. See [storage](storage.md).
 
 The App's service principal needs `USE CATALOG`, `USE SCHEMA`, `READ VOLUME` and
 `WRITE VOLUME` on its artifact destination. Its attached Job resource grants
 `CAN_MANAGE_RUN`; the Job's run-as identity still needs the existing comparison and
-result-write grants. The attached secret grants READ and warehouse grants CAN_USE.
+result-write grants. The attached warehouse grants CAN_USE.
 The deployer needs authority to attach those resources and grant the App access.
 
 Users need access to the App, SQL warehouse, source tables and result table. Reads
@@ -65,7 +80,7 @@ for the App with the declared `sql` user scope. Identity defaults are managed by
 Databricks and must not be explicitly included in `user_api_scopes`. SQL covers
 source/metadata/result reads and group checks. Resource permissions and OAuth
 scopes are separate requirements.
-The CI service principal retains the repository's selective scopes, including files.
+The App deployer uses the selective `pairity-app-ci` profile, including files and postgres.
 
 ## GitHub Action
 
@@ -82,8 +97,7 @@ The Action no longer requires five additional GitHub environment secrets for the
 | `warehouse_name` | `Serverless Starter Warehouse`; change if your warehouse has another name |
 | `warehouse_id` | Resolved by name lookup; can be explicitly overridden |
 | `job_id` | `656591313118833` in the `workspace` target, the existing Free Edition regression Job |
-| `postgres_secret_scope` | `pairity` |
-| `postgres_secret_key` | `postgres-dsn` |
+| `lakebase_project_id` | `pairity-state` |
 | `postgres_schema` | `pairity` |
 
 The runner ID comes from successful smoke run 41833551263; update the target if the
@@ -91,10 +105,10 @@ runner is recreated. It refers to an existing Job owned by the regression bundle
 not a new Job managed by the App bundle. Warehouse lookup must resolve one existing
 warehouse; it does not create compute or silently select another warehouse.
 
-These names are deployment defaults, not proof the resources exist. Provision the
-initialized database and store its TLS connection string in Databricks Secrets at
-`pairity/postgres-dsn`, or edit the scope/key variables to reference your existing
-secret. Only the reference is committed; never put the DSN/password in bundle YAML.
+The App and Lakebase project are created by the bundle. The Job, warehouse,
+result table and Volume are existing resources. Lakebase role binding and schema
+initialization are part of deployment/startup; no manual connection-string setup
+is needed.
 
 GitHub authentication still uses `DATABRICKS_HOST`, `DATABRICKS_CLIENT_ID` and
 `DATABRICKS_CLIENT_SECRET` from the existing environment. The Action also retains
@@ -108,9 +122,9 @@ and `BUNDLE_VAR_*` mechanisms. The Action intentionally does not inject empty
 optional environment values, which would override bundle defaults/lookups.
 
 Free Edition qualification of the comparison Job is separate from App deployment.
-The successful existing smoke does not establish availability of Postgres/Lakebase,
-App user authorization, or all resources in a Free Edition workspace. Verify those
-prerequisites in the target workspace before running this new deployment action.
+The successful existing smoke does not establish Lakebase project-create privileges,
+App user authorization, or runtime database connectivity. The first deployment
+must verify project creation, App resource binding and schema initialization.
 
 After deployment, check upload -> preview -> save -> run -> history -> incident ZIP
 using two authorized users, a stale revision, and a user without source access.
@@ -144,3 +158,10 @@ pairity incident report.json --output another-incident.zip --artifact-root /Volu
 
 `submit --watch --timeout 1200` follows status transitions and exits nonzero on a
 failed result or timeout. Timeout stops watching; it does not cancel a running Job.
+
+## Lakebase references
+
+- [Free Edition limits](https://docs.databricks.com/aws/en/getting-started/free-edition-limitations)
+- [Lakebase bundle resources](https://docs.databricks.com/aws/en/oltp/projects/dabs-typical-project)
+- [App database resource binding](https://docs.databricks.com/aws/en/dev-tools/databricks-apps/lakebase)
+- [OAuth credential rotation](https://docs.databricks.com/aws/en/oltp/projects/tutorial-databricks-apps-autoscaling)
