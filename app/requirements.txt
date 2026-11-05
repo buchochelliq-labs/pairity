@@ -2,7 +2,10 @@ fastapi==0.162.0
 uvicorn==0.54.0
 databricks-sdk==0.160.0
 psycopg[binary]==3.3.7
-Pillow==12.3.0
+# Databricks' pre-installed Gradio and Streamlit require Pillow <11.
+Pillow==10.4.0
+# Match the pre-installed OpenTelemetry SDK and semantic conventions.
+opentelemetry-api==1.42.1
 pydantic==2.14.1
 PyYAML==6.0.3
 rs-rich==0.0.12

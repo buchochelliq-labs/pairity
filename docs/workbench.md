@@ -145,6 +145,33 @@ After deployment, check upload -> preview -> save -> run -> history -> incident 
 using two authorized users, a stale revision, and a user without source access.
 Live App deployment and these permission checks remain required release gates.
 
+### Dependency and Lakebase startup checks
+
+The deployed pip environment uses Python 3.11. Its pre-installed Gradio and
+Streamlit require Pillow below 11, so the App pins Pillow 10.4.0. The App also
+pins OpenTelemetry API 1.42.1 to match the observed SDK 1.42.1 and semantic
+conventions 0.63b1. CI resolves the App requirements together with these telemetry
+packages and the documented Gradio 4.44.0/Streamlit 1.38.0 versions, runs
+`pip check`, and exercises the App and incident exporter. These runtime-specific
+pins are separate from the general library's optional dependency ranges.
+
+After bundle deployment, the workbench Action inspects the App's actual Lakebase
+binding and checks that its endpoint and database belong to the same branch.
+Using the deployer's existing OAuth identity, it opens a read-only database
+connection and checks privileges **for the App's PostgreSQL role**: database
+CONNECT/CREATE, existing schema USAGE/CREATE, and the operations needed on existing
+Pairity document tables. Missing schemas/tables are left for normal initialization.
+The check makes no grants or schema changes. It requires the deployer's Lakebase
+owner role to connect from the Actions runner; a diagnostic connection failure
+does not by itself establish that the App identity is denied.
+
+This check does not impersonate the App or verify its OAuth login. Startup remains
+the check of that identity. Startup failures now identify configuration, credential
+generation, database connection or schema initialization; PostgreSQL SQLSTATE is
+included when available. Driver messages, passwords and connection strings are
+not logged. In particular, the former generic “check Lakebase resource access”
+message was a troubleshooting hint, not proof of an authorization failure.
+
 ## Local development
 
 ```bash
