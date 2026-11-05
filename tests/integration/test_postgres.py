@@ -94,6 +94,47 @@ def test_postgres_preserves_json_numeric_representation(document_store):
     assert math.copysign(1, loaded.payload["negative_zero"]) == -1
 
 
+def test_app_access_check_uses_grants_of_the_app_role(pg_connect):
+    from psycopg import sql
+
+    from pairity.web.database import DatabaseSetupError
+    from pairity.web.lakebase_check import check_grants
+
+    role = "app_check_" + uuid4().hex
+    schema = "app_check_" + uuid4().hex
+    # Everything in the fixture, including the role and grants, rolls back.
+    with pg_connect() as connection:
+        database = connection.execute("SELECT current_database()").fetchone()[0]
+        connection.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role)))
+        with pytest.raises(DatabaseSetupError, match="database CREATE"):
+            check_grants(connection, role, schema)
+        connection.execute(
+            sql.SQL("GRANT CONNECT, CREATE ON DATABASE {} TO {}").format(
+                sql.Identifier(database), sql.Identifier(role)
+            )
+        )
+        assert "schema will be created" in check_grants(connection, role, schema)
+        connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        with pytest.raises(DatabaseSetupError, match="schema USAGE"):
+            check_grants(connection, role, schema)
+        connection.execute(
+            sql.SQL("GRANT USAGE, CREATE ON SCHEMA {} TO {}").format(
+                sql.Identifier(schema), sql.Identifier(role)
+            )
+        )
+        table = sql.Identifier(schema, "document_heads")
+        connection.execute(sql.SQL("CREATE TABLE {} (id integer)").format(table))
+        with pytest.raises(DatabaseSetupError, match="document_heads SELECT"):
+            check_grants(connection, role, schema)
+        connection.execute(
+            sql.SQL("GRANT SELECT, INSERT, UPDATE ON TABLE {} TO {}").format(
+                table, sql.Identifier(role)
+            )
+        )
+        assert "grants verified" in check_grants(connection, role, schema)
+        connection.rollback()
+
+
 def test_repeated_concurrent_initialization_preserves_documents(pg_connect):
     from pairity.postgres import PostgresDocumentStore
 

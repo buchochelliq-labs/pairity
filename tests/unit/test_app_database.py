@@ -83,6 +83,34 @@ def test_legacy_dsn_factory_remains_explicit():
     assert calls == [(("postgresql://configured",), {"connect_timeout": 30})]
 
 
+@pytest.mark.parametrize("stage", ["credential generation", "database connection"])
+def test_lakebase_failure_identifies_stage_without_exposing_credentials(stage):
+    class Denied(RuntimeError):
+        sqlstate = "42501"
+
+    def fail(**kwargs):
+        raise Denied("password=must-not-be-logged")
+
+    factory = connection_factory(
+        environ=environment(),
+        connect=fail if stage == "database connection" else object(),
+        client=SimpleNamespace(
+            postgres=SimpleNamespace(
+                generate_database_credential=(
+                    fail
+                    if stage == "credential generation"
+                    else lambda **kw: SimpleNamespace(token="must-not-be-logged")
+                )
+            )
+        ),
+    )
+    with pytest.raises(Exception) as exc:
+        factory()
+    assert stage in str(exc.value)
+    assert "SQLSTATE=42501" in str(exc.value)
+    assert "must-not-be-logged" not in str(exc.value)
+
+
 def test_bootstrap_initializes_before_serving_and_fails_closed(monkeypatch, capsys):
     from pairity.web.bootstrap import main
 
