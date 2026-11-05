@@ -13,7 +13,14 @@ policies. Bulk patches require a pair or tag selection and a preview before appl
 Edits use optimistic revisions: stale writes return a conflict instead of silently
 overwriting another user's configuration.
 
-Submit a saved revision, follow Job status, cancel with the caller's permissions,
+Choose **Save & run** for a new or edited configuration to validate and save it,
+then submit the exact saved revision. No separate preview is required for this
+explicit action; preview and save remain available for reviewing changes first.
+Validation errors and revision conflicts prevent submission and appear beside the
+run action. Unchanged saved configurations use **Run** directly. Editing is locked
+while a save or submission is pending to keep the submitted snapshot consistent.
+
+Follow Job status, cancel with the caller's permissions,
 review historical counts and trends, and download an incident ZIP from a completed
 report. The ZIP includes a count image, ticket text, pinned source diagnostic SQL,
 configuration and same-engine Python reproduction. See [incident limitations](incidents.md).
@@ -149,10 +156,13 @@ These workflow and permission checks remain required release gates.
 
 ## Run analysis and monitor progress
 
-Save a configuration revision, then choose **Run saved suite**, **Run selected
-pairs** or **Run tagged pairs**. The analysis dialog opens during submission and
-shows the run ID, saved revision, elapsed time, Job stage and comparison-task
-progress. The Job remains responsible for executing comparisons in parallel.
+Choose **Save & run** for a new or edited configuration, or **Run saved suite**,
+**Run selected pairs** or **Run tagged pairs** for an unchanged saved revision.
+While an analysis is active, the action becomes **View analysis progress** so it
+reopens the existing run without submitting another. The analysis dialog opens
+during submission and shows the run ID, saved revision, elapsed time, Job stage
+and comparison-task progress. The Job remains responsible for executing comparisons
+in parallel.
 
 Stages follow Databricks metadata: queued, preparing, comparing, saving results,
 cancelling and finished. Counts come from ForEach statistics, which count only

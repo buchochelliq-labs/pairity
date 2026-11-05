@@ -30,6 +30,8 @@ let jobState: any = null;
 let historyFailure = false;
 let suiteFailure = false;
 let unavailableCount = 0;
+let savedRevision = 0;
+let saveError = "";
 beforeEach(() => {
   saved = null;
   calls = [];
@@ -38,6 +40,8 @@ beforeEach(() => {
   historyFailure = false;
   suiteFailure = false;
   unavailableCount = 0;
+  savedRevision = 0;
+  saveError = "";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init: any) => {
@@ -81,12 +85,16 @@ beforeEach(() => {
         if (conflict) {
           status = 409;
           data = { detail: "conflict" };
+        } else if (saveError) {
+          status = 422;
+          data = { detail: saveError };
         } else {
           saved =
             body.format === "yaml"
               ? parse(body.content)
               : JSON.parse(body.content);
-          data = { config: saved, revision: 1, config_hash: "abc123" };
+          savedRevision = body.expected_revision + 1;
+          data = { config: saved, revision: savedRevision, config_hash: "abc123" };
         }
       } else if (path === "/suites/test" && init.method === "GET") {
         data = { config: saved, revision: 1, config_hash: "abc123" };
@@ -148,6 +156,168 @@ async function editor() {
   });
 }
 describe("workbench workflow", () => {
+  it.each(["json", "yaml"])("saves and runs a new %s configuration without a separate preview", async (format) => {
+    await editor();
+    if (format === "yaml")
+      fireEvent.change(screen.getByLabelText("Format"), { target: { value: format } });
+    const button = screen.getByRole("button", { name: /Save & run/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    await screen.findByText("Row counts unavailable for this comparison.");
+    const writes = calls.filter(c => c.init.method === "PUT" || c.path.endsWith("/runs"));
+    expect(writes.map(c => c.path)).toEqual(["/suites/test", "/suites/test/runs"]);
+    expect(writes[0].body).toMatchObject({ format, expected_revision: 0 });
+    expect(writes[1].body.revision).toBe(1);
+    expect(saved.pairs[0].baseline).toBe("a.b.c");
+  });
+  it("saves changed YAML before running the newly returned revision and selected tags", async () => {
+    saved = cfg;
+    await editor();
+    fireEvent.click(screen.getByRole("button", { name: /test Revision 1/ }));
+    await screen.findByText("test · revision 1");
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "yaml" } });
+    fireEvent.change(screen.getByLabelText("Candidate table"), { target: { value: "a.b.updated" } });
+    fireEvent.change(screen.getByLabelText("Filter tags (comma separated)"), { target: { value: "daily" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save & run tagged pairs/ }));
+    await screen.findByText("Row counts unavailable for this comparison.");
+    expect(saved.pairs[0].candidate).toBe("a.b.updated");
+    const request = calls.find(c => c.path === "/suites/test/runs");
+    expect(request.body).toMatchObject({ revision: 2, tags: ["daily"] });
+    expect(request.body).not.toHaveProperty("pair_ids");
+    expect(calls.find(c => c.init.method === "PUT").body.expected_revision).toBe(1);
+  });
+  it.each(["validation", "conflict"])("does not run when saving fails with a %s error", async (failure) => {
+    await editor();
+    if (failure === "conflict") conflict = true;
+    else saveError = "Candidate source is required";
+    fireEvent.click(screen.getByRole("button", { name: /Save & run/ }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("alert").textContent).toContain(
+      failure === "conflict" ? "changed since you opened" : "Candidate source is required",
+    );
+    expect(calls.filter(c => c.path.endsWith("/runs"))).toHaveLength(0);
+    expect(saved).toBeNull();
+    const retry = screen.getByRole("button", { name: /Save & run/ }) as HTMLButtonElement;
+    expect(retry.disabled).toBe(false);
+    expect(document.getElementById(retry.getAttribute("aria-describedby")!)!.textContent).toContain(
+      failure === "conflict" ? "changed since you opened" : "Candidate source is required",
+    );
+  });
+  it("reopens active progress from the run action without submitting another job", async () => {
+    saved = cfg;
+    jobState = { status: "running", lifecycle: "RUNNING", run_id: "123", done: false };
+    await editor();
+    fireEvent.click(screen.getByRole("button", { name: /test Revision 1/ }));
+    await screen.findByText("test · revision 1");
+    fireEvent.click(screen.getByRole("button", { name: /Run selected pairs/ }));
+    await screen.findByText("Analysis running");
+    fireEvent.click(screen.getByRole("button", { name: "Minimize" }));
+    const button = screen.getByRole("button", { name: "View analysis progress" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(screen.getByRole("dialog", { name: "Analysis progress" })).toBeTruthy();
+    expect(calls.filter(c => c.path === "/suites/test/runs")).toHaveLength(1);
+    expect(calls.filter(c => c.init.method === "PUT")).toHaveLength(0);
+  });
+  it("waits for the save, locks edits and submits once despite repeated clicks", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let releaseSave!: () => void;
+    const saving = new Promise<void>(resolve => { releaseSave = resolve; });
+    vi.mocked(fetch).mockImplementation(async (url: any, init: any) => {
+      if (init.method === "PUT") await saving;
+      return original(url, init);
+    });
+    await editor();
+    const button = screen.getByRole("button", { name: /Save & run/ });
+    fireEvent.click(button);
+    await screen.findByText("Saving before run…");
+    fireEvent.click(button);
+    expect(screen.getByLabelText("Candidate table").matches(":disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "New suite" }).matches(":disabled")).toBe(true);
+    expect(calls.filter(c => c.path.endsWith("/runs"))).toHaveLength(0);
+    releaseSave();
+    await screen.findByText("Row counts unavailable for this comparison.");
+    expect(calls.filter(c => c.init.method === "PUT")).toHaveLength(1);
+    expect(calls.filter(c => c.path.endsWith("/runs"))).toHaveLength(1);
+  });
+  it("explains malformed source next to the disabled action and still allows validation", async () => {
+    await editor();
+    fireEvent.change(screen.getByLabelText("Configuration source"), { target: { value: "{" } });
+    const button = screen.getByRole("button", { name: /Save & run/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    const description = document.getElementById(button.getAttribute("aria-describedby")!)!;
+    expect(description.textContent).toContain("Use Validate");
+    expect(screen.getByRole("button", { name: "Validate" }).matches(":disabled")).toBe(false);
+    expect(calls.filter(c => c.path.endsWith("/runs"))).toHaveLength(0);
+  });
+  it("retains the saved revision after a submission error so retrying does not save again", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((url: any, init: any) => {
+      if (String(url).endsWith("/suites/test/runs"))
+        return Promise.resolve({ ok: false, status: 403, json: async () => ({ detail: "Run permission required" }) } as Response);
+      return original(url, init);
+    });
+    await editor();
+    fireEvent.click(screen.getByRole("button", { name: /Save & run/ }));
+    await screen.findByText(/Run permission required/);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const button = screen.getByRole("button", { name: /Run saved suite/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(document.getElementById(button.getAttribute("aria-describedby")!)!.textContent).toContain("Run permission required");
+    vi.mocked(fetch).mockImplementation(original);
+    fireEvent.click(button);
+    await screen.findByText("Row counts unavailable for this comparison.");
+    expect(calls.filter(c => c.init.method === "PUT")).toHaveLength(1);
+    expect(calls.find(c => c.path.endsWith("/runs")).body.revision).toBe(1);
+  });
+  it("keeps editing locked when a history request finishes during a pending save", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    let releaseSave!: () => void;
+    const saving = new Promise<void>(resolve => { releaseSave = resolve; });
+    vi.mocked(fetch).mockImplementation(async (url: any, init: any) => {
+      if (String(url).includes("/runs?"))
+        return { ok: true, json: async () => ({ items: [{ suite: "test", run_id: "run-1", status: "passed", pairs: 1 }] }) } as Response;
+      if (init.method === "PUT") await saving;
+      return original(url, init);
+    });
+    await editor();
+    fireEvent.click(screen.getByRole("button", { name: /Save & run/ }));
+    await screen.findByText("Saving before run…");
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Run history" }));
+      fireEvent.click(screen.getByRole("button", { name: "Review →" }));
+      await screen.findByText("Row counts unavailable for this comparison.");
+      fireEvent.click(screen.getByRole("button", { name: "Configurations" }));
+      expect(screen.getByLabelText("Configuration source").matches(":disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: "New suite" }).matches(":disabled")).toBe(true);
+    } finally { releaseSave(); }
+    await waitFor(() => expect(calls.filter(c => c.path === "/suites/test/runs")).toHaveLength(1));
+    await screen.findByText("Row counts unavailable for this comparison.");
+  });
+  it("creates a renamed suite at revision zero and runs that destination", async () => {
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((url: any, init: any) => {
+      const path = String(url).replace("/api/v1", "");
+      if (path.startsWith("/suites/renamed")) {
+        const body = JSON.parse(init.body);
+        calls.push({ path, body, init });
+        const data = init.method === "PUT"
+          ? { config: JSON.parse(body.content), revision: 1, config_hash: "renamed-hash" }
+          : { backend: "local", run_id: "run-1" };
+        return Promise.resolve({ ok: true, json: async () => data } as Response);
+      }
+      return original(url, init);
+    });
+    saved = cfg;
+    await editor();
+    fireEvent.click(screen.getByRole("button", { name: /test Revision 1/ }));
+    await screen.findByText("test · revision 1");
+    fireEvent.change(screen.getByLabelText("Suite name"), { target: { value: "renamed" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save & run selected pairs/ }));
+    await screen.findByText("Row counts unavailable for this comparison.");
+    expect(calls.find(c => c.path === "/suites/renamed").body.expected_revision).toBe(0);
+    expect(calls.find(c => c.path === "/suites/renamed/runs").body).toMatchObject({ revision: 1, pair_ids: ["customers"] });
+  });
   it("applies catalog keys to YAML and invalidates an existing preview", async () => {
     const original = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((url: any, init: any) => {
@@ -276,10 +446,11 @@ describe("workbench workflow", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: /Run saved suite/,
+          name: /Save & run suite/,
         }) as HTMLButtonElement
       ).disabled,
-    ).toBe(true);
+    ).toBe(false);
+    expect(calls.filter(c => c.path === "/suites/test/runs")).toHaveLength(0);
   });
   it("accepts multiple mapped keys and tags in the guided editor", async () => {
     await editor();
