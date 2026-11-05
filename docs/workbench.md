@@ -88,6 +88,11 @@ The App deployer uses the selective `pairity-app-ci` profile, including files an
 environment. It builds/tests the frontend, assembles the exact checkout, validates
 and deploys `app/databricks.yml`, then starts the App. It does not execute comparisons.
 
+The bundle explicitly syncs `app/build`, including the Python package, requirements
+and compiled frontend. This generated directory stays Git-ignored; the bundle's
+`sync.include` overrides that exclusion for deployment. Build the UI and run
+`scripts/build_app.py` before deploying locally too.
+
 Deployment configuration lives in `app/databricks.yml`, including per-target values.
 The Action no longer requires five additional GitHub environment secrets for the App.
 
