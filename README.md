@@ -16,8 +16,9 @@ Pairity follows the DQX library and workspace-tool architecture, with independen
 - Pin Delta inputs to recorded table versions. Compared tables are read-only.
 - Compose metadata providers, readers, comparison backends, execution backends, configuration stores and result sinks through versioned interfaces.
 - Render CLI reports with **rs-rich's Rust-backed Python bindings**, and inspect saved runs with **intuiTUIve**.
+- Use the Databricks workbench to import/edit configurations, preview revisions, submit Jobs, review results and download incident evidence. Browse Unity Catalog Delta tables and validate primary-key mappings in the guided editor.
 
-This is the initial library/CLI foundation. The hosted Databricks App, live storage/deployment verification, automated retention, cancellation/retries, complex-type policies and optional DQX integration are tracked in the [issues](https://github.com/buchochelliq-labs/pairity/issues). No DQX runtime dependency is installed.
+The serverless Job smoke and hosted App startup have succeeded on Databricks Free Edition. End-to-end App permission qualification, automated retention, retry policies, complex-type policies and optional DQX integration remain tracked in the [issues](https://github.com/buchochelliq-labs/pairity/issues). No DQX runtime dependency is installed.
 
 ## Install and validate
 
@@ -30,7 +31,7 @@ pairity convert examples/suite.yaml --format json --output suite.json
 pairity --json validate suite.json
 ```
 
-On Databricks, install the built wheel **without the `spark` extra** so the platform's PySpark is retained. Local Spark tests use PySpark 3.5.8 and Java 17. Classic Spark uses pinned threads. The serverless bundle uses isolated Connect-compatible pair tasks and Job-level parallelism; live workspace qualification remains outstanding. See [deployment and submission methods](docs/deployment.md).
+On Databricks, install the built wheel **without the `spark` extra** so the platform's PySpark is retained. Local Spark tests use PySpark 3.5.8 and Java 17. Classic Spark uses pinned threads. The serverless bundle uses isolated Connect-compatible pair tasks and Job-level parallelism. See [deployment and submission methods](docs/deployment.md).
 
 ## Run comparisons
 
@@ -73,7 +74,7 @@ Imports upsert by stable pair ID and preserve omitted pairs. The local store rej
 
 ## Databricks deployment
 
-[databricks.yml](databricks.yml) defines an unscheduled wheel task on explicitly selected existing compute. It uses a user-supplied configuration path and report directory; reports are named by job run ID. See [deployment](docs/deployment.md) for prerequisites and the workspace smoke test. Workspace deployment has not yet been exercised; local Spark tests do not substitute for that check.
+[databricks.yml](databricks.yml) defines an unscheduled serverless Job with preparation, parallel pair tasks and aggregation; [the App bundle](app/databricks.yml) deploys the workbench and Lakebase state. The Free Edition [Job smoke](https://github.com/buchochelliq-labs/pairity/actions/runs/41833551263) and [App deployment/startup](https://github.com/buchochelliq-labs/pairity/actions/runs/42100391510) succeeded. See [deployment](docs/deployment.md) and [workbench qualification](docs/workbench.md) for setup and remaining live checks.
 
 ## Development
 

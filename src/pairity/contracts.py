@@ -23,6 +23,24 @@ class MetadataProvider(Protocol):
     def primary_key(self, table: str) -> list[str] | None: ...
 
 
+class CatalogDiscovery(Protocol):
+    """Caller-scoped metadata only; pages contain items and an optional next_after."""
+
+    api_version: int
+
+    def catalogs(self, *, search: str = "", after: str = "", limit: int = 50) -> dict: ...
+
+    def schemas(
+        self, catalog: str, *, search: str = "", after: str = "", limit: int = 50
+    ) -> dict: ...
+
+    def tables(
+        self, catalog: str, schema: str, *, search: str = "", after: str = "", limit: int = 50
+    ) -> dict: ...
+
+    def describe(self, table: str) -> dict: ...
+
+
 class TableReader(Protocol):
     api_version: int
 

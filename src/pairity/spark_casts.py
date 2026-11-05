@@ -3,6 +3,8 @@
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
+from pairity.type_alignment import implicit_target_name
+
 INTEGRAL = (T.ByteType, T.ShortType, T.IntegerType, T.LongType)
 FLOATING = (T.FloatType, T.DoubleType)
 NUMERIC = (*INTEGRAL, *FLOATING, T.DecimalType)
@@ -12,53 +14,8 @@ def quote(name):
     return "`" + name.replace("`", "``") + "`"
 
 
-def _decimal_shape(dtype):
-    if isinstance(dtype, T.DecimalType):
-        return dtype.precision - dtype.scale, dtype.scale
-    return {
-        T.ByteType: (3, 0),
-        T.ShortType: (5, 0),
-        T.IntegerType: (10, 0),
-        T.LongType: (20, 0),
-    }.get(type(dtype))
-
-
 def implicit_target(a, b):
-    if a == b:
-        return None
-    if isinstance(a, T.NullType):
-        return (
-            b.simpleString()
-            if isinstance(b, (*NUMERIC, T.StringType, T.BooleanType, T.DateType))
-            else None
-        )
-    if isinstance(b, T.NullType):
-        return implicit_target(b, a)
-    if isinstance(a, T.StringType):
-        if isinstance(b, INTEGRAL):
-            return "decimal(38,0)"
-        if isinstance(b, T.DecimalType):
-            return f"decimal(38,{b.scale})"
-        if isinstance(b, FLOATING):
-            return "double"
-        return None
-    if isinstance(b, T.StringType):
-        return implicit_target(b, a)
-    if (
-        isinstance(a, NUMERIC)
-        and isinstance(b, NUMERIC)
-        and (isinstance(a, FLOATING) or isinstance(b, FLOATING))
-    ):
-        return "double"
-    da, db = _decimal_shape(a), _decimal_shape(b)
-    if da and db:
-        if isinstance(a, INTEGRAL) and isinstance(b, INTEGRAL):
-            return "long"
-        scale = max(da[1], db[1])
-        precision = max(da[0], db[0]) + scale
-        return f"decimal({precision},{scale})" if precision <= 38 else None
-    # Decimal/integer versus floating point has no universally exact common type.
-    return None
+    return implicit_target_name(a.simpleString(), b.simpleString())
 
 
 def _cast(frame, name, target):

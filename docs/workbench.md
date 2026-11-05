@@ -137,13 +137,64 @@ and `BUNDLE_VAR_*` mechanisms. The Action intentionally does not inject empty
 optional environment values, which would override bundle defaults/lookups.
 
 Free Edition qualification of the comparison Job is separate from App deployment.
-The successful existing smoke does not establish Lakebase project-create privileges,
-App user authorization, or runtime database connectivity. The first deployment
-must verify project creation, App resource binding and schema initialization.
+[App deployment 42100391510](https://github.com/buchochelliq-labs/pairity/actions/runs/42100391510)
+succeeded on November 5, 2026, and the operator confirmed that the App now works.
+This establishes deployment/startup with the current Lakebase binding and literal
+endpoint workaround. It does not establish the multi-user workflow or permission
+checks below.
 
 After deployment, check upload -> preview -> save -> run -> history -> incident ZIP
 using two authorized users, a stale revision, and a user without source access.
-Live App deployment and these permission checks remain required release gates.
+These workflow and permission checks remain required release gates.
+
+## Discover table pairs and primary keys
+
+In a configuration's pair editor, choose **Browse Unity Catalog**. Browse each
+side independently through catalog, schema and table. Search filters names
+literally, and **More** retrieves the next page. Discovery lists Delta tables,
+matching the current engine's supported table format. **Use selected table**
+updates that side in the draft using its current version, removes any previous
+version pin for that side, and retains other pair settings and existing keys.
+Composed/template sources remain in the source editor and are never flattened.
+
+Choose **Inspect tables and keys** to check table visibility, SELECT access and
+column metadata. Matching declared UC primary keys produce an editable suggestion.
+Missing or differently named declarations require explicit mappings: use **Add key
+column** and select columns from both sides. Composite keys use multiple rows.
+Remove rows to discard a suggestion. No key is guessed from a column named `id`.
+The existing manual key field remains available.
+
+**Validate key mapping** checks missing/duplicate/excluded key columns and scalar
+type compatibility. It resolves inherited implicit-cast settings, column opt-outs
+and explicit `compare_as` using the engine's shared type policy. Planned casts are
+shown; actual cast validity is checked on the data by the Job. Configure cast
+directives in the JSON/YAML editor, then inspect again.
+
+**Apply key mappings** updates the same JSON/YAML draft and invalidates any existing
+save preview. Continue with preview and save to create a revision. The check is
+an optional authoring aid; drafts and manual configurations retain their existing
+save flow. Missing keys still block execution, and the engine checks keys again.
+Only the key metadata is validated here, not the full value-column comparison.
+
+Metadata discovery uses the verified caller's existing SQL warehouse connection
+and `sql` user scope, not the App service principal. It reads information schema
+and executes `SELECT ... LIMIT 0` to check table access, returning no source rows.
+Page sizes are capped at 100 and table inspection at 500 columns; larger schemas
+produce an explicit error and remain configurable manually. Query failures never
+establish readability. Discovery is unavailable in local demo mode unless a
+`CatalogDiscovery` v1 adapter is injected into the shared workbench facade.
+
+UC primary keys are informational. These checks do not prove uniqueness, null
+absence or lossless casts. They inspect current metadata; the Job validates the
+actual pinned snapshot. Deleted tables, revoked permissions and changed schemas
+can invalidate an earlier check. There is no data scan in the App process.
+
+Live qualification for [#50](https://github.com/buchochelliq-labs/pairity/issues/50):
+use the Free Edition App to discover a readable Delta pair, apply declared and
+renamed/composite keys, preview/save/run, then try missing keys, an inaccessible
+table, and access revoked after inspection. Confirm no source metadata or rows
+leak across caller identities. Automated adapter/API/UI tests do not replace this
+workspace check. Global cross-catalog matching suggestions are a later UX step.
 
 ### Dependency and Lakebase startup checks
 

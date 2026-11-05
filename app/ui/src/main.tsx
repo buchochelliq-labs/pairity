@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { parse, stringify } from "yaml";
 import { api, encoded, pretty, Config, Pair } from "./api";
+import { CatalogPairEditor } from "./CatalogPairEditor";
 import "./style.css";
 const initial: Config = {
   schema_version: 1,
@@ -636,6 +637,14 @@ export function App() {
                       >
                         Remove pair
                       </button>
+                      <CatalogPairEditor
+                        config={config!}
+                        pairIndex={i}
+                        onChange={(pair) => write({
+                          ...config!,
+                          pairs: config!.pairs.map((current, j) => j === i ? pair : current),
+                        })}
+                      />
                     </fieldset>
                   ))}
                   <button

@@ -10,6 +10,7 @@ from pathlib import Path
 from pairity.bulk import patch_pairs, preview_update, select_pairs
 from pairity.config import SuiteConfig, resolve_settings
 from pairity.config_storage import FileConfigStore, RevisionConflict
+from pairity.contracts import CatalogDiscovery
 from pairity.metadata import MissingKeys, resolve_keys
 from pairity.serialization import load_config
 
@@ -66,6 +67,7 @@ class Workbench:
         results=None,
         authorize_sources=None,
         artifacts=None,
+        discovery: CatalogDiscovery | None = None,
     ):
         self.catalog = catalog
         self.metadata = metadata or NoKeyMetadata()
@@ -73,6 +75,21 @@ class Workbench:
         self.results = results
         self.authorize_sources = authorize_sources or (lambda config: None)
         self.artifacts = artifacts
+        if discovery is not None and discovery.api_version != 1:
+            raise ValueError("Unsupported discovery adapter API version")
+        self.discovery = discovery
+
+    def catalog_discovery(self):
+        if self.discovery is None:
+            raise ValueError("Unity Catalog discovery is available in the Databricks-hosted app")
+        return self.discovery
+
+    def inspect_pair(self, content, format, pair_id):
+        from pairity.inspection import inspect_pair
+
+        if len(content.encode()) > 2 * 1024 * 1024:
+            raise ValueError("Configuration exceeds 2 MiB")
+        return inspect_pair(load_config(content, format), pair_id, self.catalog_discovery())
 
     @staticmethod
     def document(stored):

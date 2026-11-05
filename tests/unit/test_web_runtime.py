@@ -41,6 +41,8 @@ def test_hosted_submission_requires_caller_acl_before_app_identity_execution(mon
     assert clients[0]["auth_type"] == "pat"
     assert workbench.submitter.submitter.client is privileged
     assert workbench.submitter.observer.client is privileged
+    assert workbench.discovery.query.client is caller
+    assert workbench.discovery.metadata is workbench.metadata
 
     def denied(**kwargs):
         raise PermissionError("Caller cannot manage Job runs")
