@@ -1,0 +1,67 @@
+name: Deploy Pairity simple app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pairity-simple-app-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: Databricks-free
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test standalone startup
+        run: python app/simple/test_app.py
+      - name: Install pinned Databricks CLI
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/databricks/cli/releases/download/v1.23.0/databricks_cli_1.23.0_linux_amd64.zip \
+            --output "$RUNNER_TEMP/databricks.zip"
+          unzip -q "$RUNNER_TEMP/databricks.zip" -d "$RUNNER_TEMP/databricks-cli"
+          chmod +x "$RUNNER_TEMP/databricks-cli/databricks"
+          echo "$RUNNER_TEMP/databricks-cli" >> "$GITHUB_PATH"
+      - name: Deploy minimal app
+        working-directory: app/simple
+        env:
+          DATABRICKS_CONFIG_FILE: ${{ github.workspace }}/.github/databrickscfg
+          DATABRICKS_CONFIG_PROFILE: pairity-simple-app-ci
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_AUTH_TYPE: oauth-m2m
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: |
+          databricks bundle validate --target workspace
+          databricks bundle deploy --target workspace
+          if databricks bundle run --target workspace simple; then
+            databricks apps get pairity-simple --output json > "$RUNNER_TEMP/simple-app.json"
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          app = json.loads((Path(os.environ['RUNNER_TEMP']) / 'simple-app.json').read_text())
+          state = app.get('app_status', {}).get('state')
+          if state != 'RUNNING':
+              raise SystemExit(f'App did not reach RUNNING: {state}')
+          url = app['url']
+          print(f'App is RUNNING: {url}')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(f'Pairity simple app is RUNNING: {url}\n\nOpen it and check `/health`.\n')
+          PY
+          else
+            deployment_status=$?
+            timeout 60s databricks apps logs pairity-simple --tail-lines 200 || true
+            exit "$deployment_status"
+          fi
