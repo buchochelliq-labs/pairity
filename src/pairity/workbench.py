@@ -221,7 +221,18 @@ class Workbench:
                     raise ValueError(f"Supply primary keys for {pair.id}: {exc}") from exc
         if self.submitter is None:
             raise ValueError("No submission backend configured")
-        return asdict(self.submitter.submit(config, request_id=request_id))
+        handle = self.submitter.submit(config, request_id=request_id)
+        return asdict(handle) | {
+            "suite": config.suite,
+            "revision": revision,
+            "result_run_id": (
+                f"job:{handle.run_id}" if handle.backend == "databricks-jobs" else handle.run_id
+            ),
+            "pairs": [
+                {"pair_index": index, "pair_id": pair.id, "enabled": pair.enabled}
+                for index, pair in enumerate(config.pairs)
+            ],
+        }
 
     def report(self, run_id):
         if self.results is None:

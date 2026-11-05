@@ -64,6 +64,29 @@ def test_missing_keys_block_launch_but_allow_editing(tmp_path):
         service.submit("daily", revision=1, request_id="request-1")
 
 
+def test_submission_returns_snapshot_pair_indexes_for_progress(tmp_path):
+    from pairity.submission import RunHandle
+    from pairity.workbench import FileSuiteCatalog, Workbench
+
+    service = Workbench(
+        FileSuiteCatalog(tmp_path),
+        submitter=SimpleNamespace(
+            submit=lambda config, request_id: RunHandle("databricks-jobs", "42")
+        ),
+    )
+    config = suite()
+    config.pairs.append(config.pairs[0].model_copy(update={"id": "two", "enabled": False}))
+    config.pairs.append(config.pairs[0].model_copy(update={"id": "three"}))
+    service.save("daily", dump_config(config, "json"), "json", 0)
+    response = service.submit("daily", revision=1, request_id="r", pair_ids=["three", "two"])
+    assert response["pairs"] == [
+        {"pair_index": 0, "pair_id": "two", "enabled": False},
+        {"pair_index": 1, "pair_id": "three", "enabled": True},
+    ]
+    assert response["suite"] == "daily" and response["revision"] == 1
+    assert response["result_run_id"] == "job:42"
+
+
 def test_catalog_paths_confined_and_bulk_requires_selection(tmp_path):
     from pairity.workbench import FileSuiteCatalog, Workbench
 

@@ -10,10 +10,12 @@ export async function api<T = any>(
   path: string,
   body?: unknown,
   method = body === undefined ? "GET" : "POST",
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(`/api/v1${path}`, {
     method,
     credentials: "same-origin",
+    signal,
     headers:
       body === undefined
         ? {}
