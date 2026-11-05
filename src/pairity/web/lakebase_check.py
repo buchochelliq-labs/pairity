@@ -2,10 +2,32 @@
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 from pairity.web.database import DatabaseSetupError, database_failure
+
+
+def resolve_endpoint_name(summary, endpoint_name):
+    """Resolve this bundle's project output using its deployed resource ID."""
+    # CLI 1.23 summary loads resource IDs, but preserves ${resources.*} in
+    # config.env. For a postgres_project, the deployed ID is its full name.
+    reference = "${resources.postgres_projects.state.name}"
+    if isinstance(endpoint_name, str) and endpoint_name.startswith(reference):
+        project = summary.get("resources", {}).get("postgres_projects", {}).get("state", {})
+        project_name = project.get("id")
+        if not isinstance(project_name, str) or not re.fullmatch(
+            r"projects/[a-zA-Z0-9_-]+", project_name
+        ):
+            raise DatabaseSetupError("Bundle summary has no valid deployed Lakebase project ID")
+        endpoint_name = project_name + endpoint_name[len(reference) :]
+    if not isinstance(endpoint_name, str) or not re.fullmatch(
+        r"projects/[a-zA-Z0-9_-]+/branches/[a-zA-Z0-9_-]+/endpoints/[a-zA-Z0-9_-]+",
+        endpoint_name,
+    ):
+        raise DatabaseSetupError("Configured Lakebase endpoint is unresolved or malformed")
+    return endpoint_name
 
 
 def check_grants(connection, role, schema):
@@ -93,11 +115,12 @@ def main():
         summary = json.loads(Path(sys.argv[1]).read_text())
         app = summary["resources"]["apps"]["workbench"]
         env = {item["name"]: item.get("value") for item in app["config"]["env"]}
+        endpoint_name = resolve_endpoint_name(summary, env.get("PAIRITY_LAKEBASE_ENDPOINT"))
         result = check_resources(
             WorkspaceClient(),
             connect,
             app_name=app["name"],
-            endpoint_name=env["PAIRITY_LAKEBASE_ENDPOINT"],
+            endpoint_name=endpoint_name,
             schema=env["PAIRITY_POSTGRES_SCHEMA"],
             deployer=os.environ["DATABRICKS_CLIENT_ID"],
         )
