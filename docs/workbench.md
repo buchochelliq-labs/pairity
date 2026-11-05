@@ -93,6 +93,16 @@ and compiled frontend. This generated directory stays Git-ignored; the bundle's
 `sync.include` overrides that exclusion for deployment. Build the UI and run
 `scripts/build_app.py` before deploying locally too.
 
+If App startup fails, the Action retrieves the last 200 App log lines before
+returning the original deployment failure. Select `logs_only` when manually
+running the Action to inspect an existing crash without rebuilding, deploying
+or restarting the App. Log collection uses the existing service principal and
+has a 60-second limit. The App name is resolved from the bundle target.
+Alternatively, open the App's Logs tab in Databricks, or run
+`databricks apps logs pairity-workbench --tail-lines 200` with an authorized
+OAuth CLI profile. The generic deployment message alone does not identify the
+startup exception. Read logs before stopping App compute, which clears them.
+
 Deployment configuration lives in `app/databricks.yml`, including per-target values.
 The Action no longer requires five additional GitHub environment secrets for the App.
 
