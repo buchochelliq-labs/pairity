@@ -1,4 +1,5 @@
-fastapi==0.162.0
+# Use the documented App-runtime FastAPI version; 0.162 requires OTel API >=1.44.
+fastapi==0.115.0
 uvicorn==0.54.0
 databricks-sdk==0.160.0
 psycopg[binary]==3.3.7

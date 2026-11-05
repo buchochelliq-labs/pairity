@@ -150,7 +150,9 @@ Live App deployment and these permission checks remain required release gates.
 The deployed pip environment uses Python 3.11. Its pre-installed Gradio and
 Streamlit require Pillow below 11, so the App pins Pillow 10.4.0. The App also
 pins OpenTelemetry API 1.42.1 to match the observed SDK 1.42.1 and semantic
-conventions 0.63b1. CI resolves the App requirements together with these telemetry
+conventions 0.63b1. FastAPI uses the documented runtime version 0.115.0: version
+0.162.0 requires OpenTelemetry API >=1.44 and cannot coexist with that telemetry
+stack. CI resolves the App requirements together with these telemetry
 packages and the documented Gradio 4.44.0/Streamlit 1.38.0 versions, runs
 `pip check`, and exercises the App and incident exporter. These runtime-specific
 pins are separate from the general library's optional dependency ranges.
