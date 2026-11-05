@@ -147,6 +147,16 @@ Live App deployment and these permission checks remain required release gates.
 
 ### Dependency and Lakebase startup checks
 
+To test an endpoint string directly, run **Test Lakebase endpoint format** on
+`main`. It uses the `Databricks-free` service principal with only the `postgres`
+scope and passes the input unchanged to `generate_database_credential`, bypassing
+Pairity's local format check. Defaults compare `pairity-workbench/production/primary`
+with `projects/pairity-state/branches/production/endpoints/primary`. Both requests
+run even if one fails. The Action reports credential issuance or the SDK error
+type/code, never the credential itself, and fails if either request fails.
+Authentication/transport errors do not prove that an endpoint format was rejected.
+This probe does not deploy the App, connect to PostgreSQL, or change its resources.
+
 The deployed pip environment uses Python 3.11. Its pre-installed Gradio and
 Streamlit require Pillow below 11, so the App pins Pillow 10.4.0. The App also
 pins OpenTelemetry API 1.42.1 to match the observed SDK 1.42.1 and semantic

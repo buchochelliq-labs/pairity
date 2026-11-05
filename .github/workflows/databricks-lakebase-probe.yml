@@ -1,0 +1,44 @@
+name: Test Lakebase endpoint format
+
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: Exact endpoint to send to Databricks without Pairity validation
+        type: string
+        default: pairity-workbench/production/primary
+        required: true
+      control_endpoint:
+        description: Control endpoint for comparison
+        type: string
+        default: projects/pairity-state/branches/production/endpoints/primary
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: Databricks-free
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'databricks-sdk==0.160.0'
+      - name: Send exact endpoint values to the Databricks credential API
+        env:
+          DATABRICKS_CONFIG_FILE: ${{ github.workspace }}/.github/databrickscfg
+          DATABRICKS_CONFIG_PROFILE: pairity-lakebase-probe
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_AUTH_TYPE: oauth-m2m
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          PAIRITY_PROBE_ENDPOINT: ${{ inputs.endpoint }}
+          PAIRITY_CONTROL_ENDPOINT: ${{ inputs.control_endpoint }}
+        run: python scripts/probe_lakebase_endpoint.py
