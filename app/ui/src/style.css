@@ -430,6 +430,12 @@ td small {
   grid-template-columns: 260px 1fr;
   gap: 24px;
 }
+.configuration-controls {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
 .suite-list {
   align-self: start;
   padding: 20px;

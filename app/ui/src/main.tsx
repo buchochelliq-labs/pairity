@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { parse, stringify } from "yaml";
 import { api, encoded, pretty, Config, Pair } from "./api";
@@ -36,7 +36,11 @@ export function App() {
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
+    [savingToRun, setSavingToRun] = useState(false),
+    [runError, setRunError] = useState(""),
     [query, setQuery] = useState("");
+  const runStarting = useRef(false);
+  const pendingActions = useRef(0);
   const [text, setText] = useState(pretty(initial)),
     [format, setFormat] = useState<"json" | "yaml">("json"),
     [revision, setRevision] = useState<number | null>(null),
@@ -76,6 +80,7 @@ export function App() {
     /* Preserve invalid editor input. */
   }
   const act = async (fn: () => Promise<void>) => {
+    pendingActions.current++;
     setBusy(true);
     setError("");
     setNotice("");
@@ -84,7 +89,8 @@ export function App() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setBusy(false);
+      pendingActions.current--;
+      setBusy(pendingActions.current > 0);
     }
   };
   const refresh = async () => {
@@ -126,6 +132,7 @@ export function App() {
   }, []);
   function edit(value: string) {
     setText(value);
+    setRunError("");
     setPreview(null);
     setEffective([]);
     setPatchPreview(null);
@@ -140,6 +147,7 @@ export function App() {
     setSavedConfig(pretty(d.config));
     setSavedName(name);
     setRevision(d.revision);
+    setRunError("");
     setTags("");
     setSelected(
       d.config.pairs
@@ -153,12 +161,63 @@ export function App() {
   }
   const patchSignature = pretty({ patch, selected, tags, revision, savedName });
   const dirty = !config || pretty(config) !== savedConfig;
+  const needsSave = revision === null || !savedName || dirty;
+  const expectedRevision = config?.suite === savedName ? revision ?? 0 : 0;
   const suitePath = `/suites/${encoded(savedName)}`;
   const tagList = () =>
     tags
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
+  async function saveConfiguration() {
+    const d = await api(
+      `/suites/${encoded(config!.suite)}`,
+      { content: text, format, expected_revision: expectedRevision },
+      "PUT",
+    );
+    setSavedName(d.config.suite);
+    setSavedConfig(pretty(d.config));
+    setText(format === "yaml" ? stringify(d.config) : pretty(d.config));
+    setRevision(d.revision);
+    setPreview(null);
+    setNotice(`Saved revision ${d.revision}`);
+    setRunError("");
+    return d;
+  }
+  async function runConfiguration() {
+    if (analysis.active) {
+      analysis.show();
+      return;
+    }
+    if (busy || runStarting.current || !config) return;
+    runStarting.current = true;
+    setRunError("");
+    await act(async () => {
+      try {
+        // Keep the selected snapshot and use the revision returned by the save,
+        // rather than waiting for React state or running the older revision.
+        let target = { suite: savedName, revision };
+        if (needsSave) {
+          setSavingToRun(true);
+          const saved = await saveConfiguration();
+          target = { suite: saved.config.suite, revision: saved.revision };
+          setSavingToRun(false);
+        }
+        await analysis.start(`/suites/${encoded(target.suite)}/runs`, {
+          revision: target.revision,
+          request_id: crypto.randomUUID(),
+          ...(selected.length ? { pair_ids: selected } : {}),
+          ...(tagList().length ? { tags: tagList() } : {}),
+        });
+      } catch (e) {
+        setRunError((e as Error).message);
+        throw e;
+      } finally {
+        setSavingToRun(false);
+        runStarting.current = false;
+      }
+    });
+  }
   function updatePair(i: number, key: string, value: unknown) {
     if (config)
       write({
@@ -340,6 +399,7 @@ export function App() {
                 <h2>Suites</h2>
                 <button
                   aria-label="New suite"
+                  disabled={busy}
                   onClick={() => {
                     setSavedName("");
                     setRevision(null);
@@ -368,6 +428,7 @@ export function App() {
                   <button
                     className={`suite ${s.suite === savedName ? "current" : ""}`}
                     key={s.suite}
+                    disabled={busy}
                     onClick={() => void act(() => load(s.suite))}
                   >
                     <strong>{s.suite}</strong>
@@ -385,7 +446,7 @@ export function App() {
                 </p>
               )}
             </section>
-            <div>
+            <fieldset className="configuration-controls" aria-label="Configuration and run controls" disabled={busy}>
               <section className="panel">
                 <div className="section-heading">
                   <div>
@@ -662,7 +723,7 @@ export function App() {
                           suite: config?.suite || savedName,
                           content: text,
                           format,
-                          expected_revision: revision ?? 0,
+                          expected_revision: expectedRevision,
                         });
                         setPreview({
                           ...d,
@@ -678,6 +739,7 @@ export function App() {
                   </button>
                   <button
                     className="primary"
+                    aria-describedby="save-guidance"
                     disabled={
                       busy ||
                       !preview ||
@@ -688,25 +750,7 @@ export function App() {
                     }
                     onClick={() =>
                       void act(async () => {
-                        const d = await api(
-                          `/suites/${encoded(config!.suite)}`,
-                          {
-                            content: text,
-                            format,
-                            expected_revision: revision ?? 0,
-                          },
-                          "PUT",
-                        );
-                        setSavedName(d.config.suite);
-                        setSavedConfig(pretty(d.config));
-                        setText(
-                          format === "yaml"
-                            ? stringify(d.config)
-                            : pretty(d.config),
-                        );
-                        setRevision(d.revision);
-                        setPreview(null);
-                        setNotice(`Saved revision ${d.revision}`);
+                        await saveConfiguration();
                         await refresh();
                       })
                     }
@@ -714,6 +758,11 @@ export function App() {
                     Apply & save
                   </button>
                 </div>
+                <p id="save-guidance" className="muted">
+                  {preview
+                    ? "Review the changes, then apply and save."
+                    : "Preview changes to enable Apply & save, or use Save & run below to validate, save and start analysis in one step."}
+                </p>
                 {preview && (
                   <div className="review">
                     <h3>Review changes</h3>
@@ -743,9 +792,22 @@ export function App() {
               </section>
               <section className="panel">
                 <h2>Run & bulk actions</h2>
-                <p className="muted">
-                  Actions use saved revision {revision ?? "—"}. Save editor
-                  changes before running.
+                <p id="run-readiness" role="status" className="muted">
+                  {savingToRun
+                    ? "Validating and saving configuration before starting analysis…"
+                    : busy
+                      ? "An action is in progress. Please wait."
+                      : analysis.active
+                        ? "An analysis is already running. Open its progress to monitor or cancel it."
+                        : !config
+                          ? "Fix the configuration source before running. Use Validate to see the errors."
+                          : runError
+                            ? `Unable to start analysis: ${runError}`
+                            : !analysis.open && analysis.submissionError
+                              ? `Previous submission failed: ${analysis.submissionError}`
+                              : needsSave
+                                ? "Save & run validates and saves your current configuration, then starts analysis using that revision."
+                                : `Ready to run saved revision ${revision}.`}
                 </p>
                 <div className="pair-selection">
                   {config?.pairs?.map((p) => (
@@ -780,22 +842,20 @@ export function App() {
                 </label>
                 <button
                   className="primary"
-                  disabled={busy || analysis.active || revision === null || !savedName || dirty}
-                  onClick={() =>
-                    void analysis.start(`${suitePath}/runs`, {
-                      revision,
-                      request_id: crypto.randomUUID(),
-                      ...(selected.length ? { pair_ids: selected } : {}),
-                      ...(tagList().length ? { tags: tagList() } : {}),
-                    })
-                  }
+                  aria-describedby="run-readiness"
+                  disabled={busy || (!analysis.active && !config)}
+                  onClick={() => void runConfiguration()}
                 >
-                  ▷ Run{" "}
-                  {selected.length
-                    ? "selected pairs"
-                    : tagList().length
-                      ? "tagged pairs"
-                      : "saved suite"}
+                  {savingToRun ? "Saving before run…" : analysis.active ? "View analysis progress" : (
+                    <>
+                      ▷ {needsSave ? "Save & run" : "Run"}{" "}
+                      {selected.length
+                        ? "selected pairs"
+                        : tagList().length
+                          ? "tagged pairs"
+                          : needsSave ? "suite" : "saved suite"}
+                    </>
+                  )}
                 </button>
                 <details>
                   <summary>Bulk patch saved pairs</summary>
@@ -869,7 +929,7 @@ export function App() {
                   {patchPreview && <Json value={patchPreview.preview} />}
                 </details>
               </section>
-            </div>
+            </fieldset>
           </div>
         )}
         {analysis.run && !analysis.open && (
