@@ -34,8 +34,10 @@ beforeEach(() => {
     }
     if (url.includes("/catalogs")) return response({ items: [{ name: "cat" }], next_after: null });
     if (url.includes("/schemas")) return response({ items: [{ name: "sch" }], next_after: null });
-    if (url.includes("after=left")) return response({ items: [{ name: "right" }], next_after: null });
-    return response({ items: [{ name: "left" }], next_after: "left" });
+    if (url.includes("/table?")) return response(descriptor("cat.sch.left"));
+    const row = (name: string) => ({ name, catalog: "cat", schema: "sch", full_name: `cat.sch.${name}` });
+    if (url.includes("after=cat.sch.left")) return response({ items: [row("right")], next_after: null });
+    return response({ items: [row("left")], next_after: "cat.sch.left" });
   }));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -46,6 +48,14 @@ function editor(c = config) {
   fireEvent.click(screen.getByRole("button", { name: "Browse Unity Catalog" }));
   return { onChange, ...view };
 }
+
+it("closes the explorer on Escape and returns focus to its trigger", () => {
+  editor();
+  const dialog = screen.getByRole("dialog", { name: "Catalog Explorer for p" });
+  fireEvent(dialog, new Event("cancel", { bubbles: false, cancelable: true }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Browse Unity Catalog" }));
+});
 
 it("suggests composite keys only after inspection and preserves pair configuration", async () => {
   const { onChange } = editor();
@@ -73,15 +83,8 @@ it("requires revalidation after editing a mapping and supports renamed keys", as
 it("browses pages and applies a new table at its current version", async () => {
   const c = { ...config, pairs: [{ ...config.pairs[0], baseline: { kind: "table", table: "cat.sch.left", version: 2 }, baseline_version: 2 }] };
   const { onChange } = editor(c);
-  await waitFor(() => expect(screen.getByLabelText("Baseline catalog").querySelector('option[value="cat"]')).toBeTruthy());
-  fireEvent.change(screen.getByLabelText("Baseline catalog"), { target: { value: "cat" } });
-  await waitFor(() => expect(screen.getByLabelText("Baseline schema").querySelector('option[value="sch"]')).toBeTruthy());
-  fireEvent.change(screen.getByLabelText("Baseline schema"), { target: { value: "sch" } });
-  await screen.findByRole("button", { name: "More Baseline table selection" });
-  fireEvent.click(screen.getByRole("button", { name: "More Baseline table selection" }));
-  await screen.findByRole("option", { name: "right" });
-  fireEvent.change(screen.getByLabelText("Baseline table selection"), { target: { value: "right" } });
-  fireEvent.click(screen.getByRole("button", { name: "Use selected baseline table" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Load more tables" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Compare cat.sch.right with…" }));
   const changed = onChange.mock.calls[0][0];
   expect(changed.baseline).toBe("cat.sch.right");
   expect(changed.baseline_version).toBeUndefined();
@@ -100,8 +103,8 @@ it("shows discovery failure and can retry", async () => {
   vi.mocked(fetch).mockResolvedValueOnce(response({ detail: "Permission denied" }, false) as Response);
   editor();
   await screen.findByText("Permission denied");
-  fireEvent.click(screen.getByRole("button", { name: "Retry Baseline catalog" }));
-  await waitFor(() => expect(screen.getByLabelText("Baseline catalog").querySelector('option[value="cat"]')).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Retry catalogs" }));
+  await screen.findByRole("button", { name: "Catalog cat" });
 });
 
 it("ignores an inspection response for an older configuration", async () => {
@@ -118,7 +121,7 @@ it("ignores an inspection response for an older configuration", async () => {
 });
 
 it("shows empty matches and ignores stale catalog search responses", async () => {
-  let finish: (value: any) => void = () => {};
+  let finish: ((value: any) => void) | undefined;
   const original = vi.mocked(fetch).getMockImplementation()!;
   vi.mocked(fetch).mockImplementation((url: any, init: any) => {
     if (String(url).includes("search=old")) return new Promise(resolve => { finish = resolve; });
@@ -126,14 +129,13 @@ it("shows empty matches and ignores stale catalog search responses", async () =>
     return original(url, init);
   });
   editor();
-  await waitFor(() => expect(screen.getByLabelText("Baseline catalog").querySelector('option[value="cat"]')).toBeTruthy());
-  fireEvent.change(screen.getByLabelText("Search Baseline catalog"), { target: { value: "old" } });
-  fireEvent.click(screen.getByRole("button", { name: "Search Baseline catalog" }));
-  fireEvent.change(screen.getByLabelText("Search Baseline catalog"), { target: { value: "new" } });
-  fireEvent.click(screen.getByRole("button", { name: "Search Baseline catalog" }));
-  await screen.findByText("No accessible matches for Baseline catalog.");
-  await act(async () => { finish(response({ items: [{ name: "stale" }], next_after: null })); });
-  expect(screen.queryByRole("option", { name: "stale" })).toBeNull();
+  await screen.findByRole("button", { name: "Catalog cat" });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Find catalogs" }), { target: { value: "old" } });
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  fireEvent.change(screen.getByRole("searchbox", { name: "Find catalogs" }), { target: { value: "new" } });
+  await screen.findByText("No matching catalogs.");
+  await act(async () => { finish!(response({ items: [{ name: "stale" }], next_after: null })); });
+  expect(screen.queryByRole("button", { name: "Catalog stale" })).toBeNull();
 });
 
 it("allows manual key selection when neither table declares primary keys", async () => {

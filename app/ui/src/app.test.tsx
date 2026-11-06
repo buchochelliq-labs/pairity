@@ -198,10 +198,45 @@ describe("workbench workflow", () => {
     expect(calls.filter(c => c.path.endsWith("/runs"))).toHaveLength(0);
     expect(saved).toBeNull();
     const retry = screen.getByRole("button", { name: /Save & run/ }) as HTMLButtonElement;
-    expect(retry.disabled).toBe(false);
+    expect(retry.disabled).toBe(failure === "conflict");
     expect(document.getElementById(retry.getAttribute("aria-describedby")!)!.textContent).toContain(
       failure === "conflict" ? "changed since you opened" : "Candidate source is required",
     );
+  });
+  it("recovers an imported suite conflict by reviewing the latest revision without losing edits", async () => {
+    saved = cfg;
+    await editor();
+    fireEvent.change(screen.getByLabelText("Candidate table"), { target: { value: "a.b.my_edit" } });
+    conflict = true;
+    fireEvent.click(screen.getByRole("button", { name: /Save & run/ }));
+    await screen.findByRole("alert");
+    conflict = false;
+    fireEvent.click(screen.getByRole("button", { name: "Review latest revision" }));
+    await screen.findByText("Review changes");
+    expect((screen.getByLabelText("Candidate table") as HTMLInputElement).value).toBe("a.b.my_edit");
+    expect(calls.find(c => c.path === "/preview").body.expected_revision).toBe(1);
+    expect(calls.filter(c => c.path.endsWith("/runs"))).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: /Save & run/ }));
+    await screen.findByText("Row counts unavailable for this comparison.");
+    expect(saved.pairs[0].candidate).toBe("a.b.my_edit");
+    expect(calls.filter(c => c.init.method === "PUT").map(c => c.body.expected_revision)).toEqual([0, 1]);
+    expect(calls.find(c => c.path.endsWith("/runs")).body.revision).toBe(2);
+  });
+  it("does not advance the editor revision when another change invalidates conflict recovery", async () => {
+    saved = cfg;
+    await editor();
+    conflict = true;
+    fireEvent.click(screen.getByRole("button", { name: /Save & run/ }));
+    await screen.findByRole("alert");
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((url: any, init: any) => String(url).endsWith("/preview")
+      ? Promise.resolve({ ok: false, status: 409, json: async () => ({ detail: "changed again" }) } as Response)
+      : original(url, init));
+    fireEvent.click(screen.getByRole("button", { name: "Review latest revision" }));
+    await screen.findByRole("alert");
+    expect(screen.getByText("Unsaved configuration")).toBeTruthy();
+    expect(screen.queryByText("Review changes")).toBeNull();
+    expect(calls.filter(c => c.path.endsWith("/runs"))).toHaveLength(0);
   });
   it("reopens active progress from the run action without submitting another job", async () => {
     saved = cfg;

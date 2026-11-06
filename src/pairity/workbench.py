@@ -91,6 +91,39 @@ class Workbench:
             raise ValueError("Configuration exceeds 2 MiB")
         return inspect_pair(load_config(content, format), pair_id, self.catalog_discovery())
 
+    def find_tables(self, *, catalog=None, schema=None, search="", after="", limit=50):
+        provider = self.catalog_discovery()
+        find = getattr(provider, "search_tables", None)
+        if callable(find):
+            return find(catalog=catalog, schema=schema, search=search, after=after, limit=limit)
+        # Retain v1 discovery adapters without cross-catalog search capability.
+        if not catalog or not schema:
+            raise ValueError(
+                "This catalog provider requires a catalog and schema; choose both to browse tables"
+            )
+        from pairity.metadata import split_table
+
+        cursor = ""
+        if after:
+            previous_catalog, previous_schema, cursor = split_table(after)
+            if (previous_catalog, previous_schema) != (catalog, schema):
+                raise ValueError("Table cursor belongs to a different schema")
+        page = provider.tables(catalog, schema, search=search, after=cursor, limit=limit)
+        return {
+            "items": [
+                {
+                    "catalog": catalog,
+                    "schema": schema,
+                    "name": row["name"],
+                    "full_name": f"{catalog}.{schema}.{row['name']}",
+                }
+                for row in page["items"]
+            ],
+            "next_after": f"{catalog}.{schema}.{page['next_after']}"
+            if page["next_after"]
+            else None,
+        }
+
     @staticmethod
     def document(stored):
         return {

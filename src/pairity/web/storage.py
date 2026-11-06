@@ -2,15 +2,61 @@
 
 import hashlib
 import json
+import logging
+import re
+import time
 
 from pairity.metadata import quote_table
 
+logger = logging.getLogger(__name__)
+
+
+def _sql_state(result):
+    return result.status.state.value if result.status and result.status.state else "UNKNOWN"
+
+
+def _sql_failure(result, warehouse_id):
+    status = result.status
+    error = status.error if status else None
+    code = error.error_code.value if error and error.error_code else "UNKNOWN"
+    sql_state = status.sql_state if status else None
+    sql_state = sql_state if sql_state and re.fullmatch(r"[A-Z0-9]{5}", sql_state) else "unknown"
+    # Provider messages can contain SQL, literals and source values. Return only
+    # the structured error class, never the free-form message or submitted SQL.
+    match = re.match(r"^\[([A-Z][A-Z0-9_.]{0,127})\]", error.message or "") if error else None
+    error_class = match[1] if match else "unknown"
+    state = _sql_state(result)
+    statement_id = result.statement_id or "unavailable"
+    logger.warning(
+        "SQL check failed warehouse=%s statement=%s state=%s code=%s sql_state=%s class=%s",
+        warehouse_id,
+        statement_id,
+        state,
+        code,
+        sql_state,
+        error_class,
+    )
+    hint = "Open SQL query history for the statement's full error."
+    if sql_state == "42501" or "PERMISSION" in error_class:
+        hint = "Check your SELECT, USE CATALOG, USE SCHEMA and warehouse CAN_USE permissions."
+    elif sql_state == "42P01" or error_class == "TABLE_OR_VIEW_NOT_FOUND":
+        hint = "Check the configured table exists and its catalog/schema/table name is correct."
+    elif state == "CANCELED":
+        hint = "The SQL check was cancelled. Check warehouse availability, then retry."
+    return ValueError(
+        f"SQL check failed ({state}; {code}; SQLSTATE {sql_state}; {error_class}). "
+        f"Statement ID: {statement_id}. {hint}"
+    )
+
 
 class SqlQuery:
-    def __init__(self, client, warehouse_id):
+    def __init__(self, client, warehouse_id, *, timeout_seconds=120):
         if not warehouse_id:
             raise ValueError("A SQL warehouse is required for the hosted application")
         self.client, self.warehouse_id = client, warehouse_id
+        if type(timeout_seconds) is not int or not 30 <= timeout_seconds <= 300:
+            raise ValueError("SQL wait budget must be between 30 and 300 seconds")
+        self.timeout_seconds = timeout_seconds
 
     def __call__(self, statement, parameters):
         from databricks.sdk.service.sql import (
@@ -18,6 +64,7 @@ class SqlQuery:
             StatementParameterListItem,
         )
 
+        deadline = time.monotonic() + self.timeout_seconds
         result = self.client.statement_execution.execute_statement(
             statement=statement,
             warehouse_id=self.warehouse_id,
@@ -25,18 +72,35 @@ class SqlQuery:
                 StatementParameterListItem(name=k, value=str(v)) for k, v in parameters.items()
             ],
             wait_timeout="30s",
-            on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CANCEL,
+            on_wait_timeout=ExecuteStatementRequestOnWaitTimeout.CONTINUE,
             row_limit=1000,
             byte_limit=4 * 1024 * 1024,
         )
-        if (
-            result.status is None
-            or result.status.state is None
-            or result.status.state.value != "SUCCEEDED"
-        ):
-            raise ValueError(
-                "SQL read did not complete; check warehouse access and statement history"
-            )
+        statement_id = result.statement_id
+        while _sql_state(result) in {"PENDING", "RUNNING"}:
+            if not statement_id:
+                raise ValueError("SQL check is pending but returned no statement ID")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                cancellation = "Cancellation requested."
+                try:
+                    self.client.statement_execution.cancel_execution(statement_id=statement_id)
+                except Exception:
+                    cancellation = "Cancellation could not be confirmed; check SQL query history."
+                logger.warning(
+                    "SQL wait timed out warehouse=%s statement=%s", self.warehouse_id, statement_id
+                )
+                raise ValueError(
+                    f"SQL check timed out after {self.timeout_seconds}s. "
+                    f"Statement ID: {statement_id}. "
+                    f"The warehouse may still be starting or busy. {cancellation}"
+                )
+            time.sleep(min(2, remaining))
+            result = self.client.statement_execution.get_statement(statement_id=statement_id)
+            if result.statement_id != statement_id:
+                raise ValueError("SQL response belongs to a different statement")
+        if _sql_state(result) != "SUCCEEDED":
+            raise _sql_failure(result, self.warehouse_id)
         if result.manifest is None or result.manifest.truncated:
             raise ValueError("SQL result exceeds the application response bound")
         chunk = result.result
@@ -44,6 +108,8 @@ class SqlQuery:
             return []
         if chunk.next_chunk_index is not None:
             raise ValueError("SQL result requires pagination; narrow the request")
+        if result.manifest.schema is None or result.manifest.schema.columns is None:
+            raise ValueError("SQL result is missing its column schema")
         names = [c.name for c in result.manifest.schema.columns]
         return [dict(zip(names, row, strict=True)) for row in chunk.data_array or []]
 

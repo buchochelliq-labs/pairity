@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { parse, stringify } from "yaml";
-import { api, encoded, pretty, Config, Pair } from "./api";
+import { api, ApiError, encoded, pretty, Config, Pair } from "./api";
 import { CatalogPairEditor } from "./CatalogPairEditor";
 import { RunProgressDialog, useAnalysisRun } from "./RunProgress";
 import "./style.css";
@@ -38,6 +38,7 @@ export function App() {
     [busy, setBusy] = useState(false),
     [savingToRun, setSavingToRun] = useState(false),
     [runError, setRunError] = useState(""),
+    [revisionConflict, setRevisionConflict] = useState(""),
     [query, setQuery] = useState("");
   const runStarting = useRef(false);
   const pendingActions = useRef(0);
@@ -88,6 +89,8 @@ export function App() {
       await fn();
     } catch (e) {
       setError((e as Error).message);
+      if (e instanceof ApiError && e.status === 409 && config)
+        setRevisionConflict(config.suite);
     } finally {
       pendingActions.current--;
       setBusy(pendingActions.current > 0);
@@ -149,6 +152,7 @@ export function App() {
     setRevision(d.revision);
     setRunError("");
     setTags("");
+    setRevisionConflict("");
     setSelected(
       d.config.pairs
         .filter((p: Pair) => p.enabled !== false)
@@ -162,6 +166,7 @@ export function App() {
   const patchSignature = pretty({ patch, selected, tags, revision, savedName });
   const dirty = !config || pretty(config) !== savedConfig;
   const needsSave = revision === null || !savedName || dirty;
+  const hasRevisionConflict = !!config && revisionConflict === config.suite;
   const expectedRevision = config?.suite === savedName ? revision ?? 0 : 0;
   const suitePath = `/suites/${encoded(savedName)}`;
   const tagList = () =>
@@ -182,14 +187,33 @@ export function App() {
     setPreview(null);
     setNotice(`Saved revision ${d.revision}`);
     setRunError("");
+    setRevisionConflict("");
     return d;
+  }
+  async function reviewLatestRevision() {
+    if (!config) return;
+    const latest = await api(`/suites/${encoded(config.suite)}`);
+    const checked = await api("/preview", {
+      suite: config.suite, content: text, format, expected_revision: latest.revision,
+    });
+    // Advance the base only after preview confirms it is still current. Keep
+    // the entire draft and require a separate explicit save/run action.
+    setSavedName(latest.config.suite);
+    setSavedConfig(pretty(latest.config));
+    setRevision(latest.revision);
+    setPreview({ ...checked, source: text, format, expectedRevision: latest.revision });
+    setEffective(checked.effective);
+    setPatchPreview(null);
+    setRevisionConflict("");
+    setRunError("");
+    setNotice(`Review your edits against saved revision ${latest.revision}. Your draft has been kept.`);
   }
   async function runConfiguration() {
     if (analysis.active) {
       analysis.show();
       return;
     }
-    if (busy || runStarting.current || !config) return;
+    if (busy || runStarting.current || !config || hasRevisionConflict) return;
     runStarting.current = true;
     setRunError("");
     await act(async () => {
@@ -803,6 +827,8 @@ export function App() {
                           ? "Fix the configuration source before running. Use Validate to see the errors."
                           : runError
                             ? `Unable to start analysis: ${runError}`
+                            : hasRevisionConflict
+                              ? "This suite changed since you opened it. Review the latest revision before saving or running."
                             : !analysis.open && analysis.submissionError
                               ? `Previous submission failed: ${analysis.submissionError}`
                               : needsSave
@@ -843,7 +869,7 @@ export function App() {
                 <button
                   className="primary"
                   aria-describedby="run-readiness"
-                  disabled={busy || (!analysis.active && !config)}
+                  disabled={busy || (!analysis.active && (!config || hasRevisionConflict))}
                   onClick={() => void runConfiguration()}
                 >
                   {savingToRun ? "Saving before run…" : analysis.active ? "View analysis progress" : (
@@ -857,6 +883,10 @@ export function App() {
                     </>
                   )}
                 </button>
+                {hasRevisionConflict && <div className="revision-recovery" role="note">
+                  <p>A newer saved configuration exists. Review it against your current draft; your edits will be kept and no Job will start until you choose Save &amp; run again.</p>
+                  <button disabled={busy} onClick={() => void act(reviewLatestRevision)}>Review latest revision</button>
+                </div>}
                 <details>
                   <summary>Bulk patch saved pairs</summary>
                   <p className="muted">

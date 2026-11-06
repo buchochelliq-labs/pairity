@@ -24,6 +24,38 @@ class Keys:
         return ["id", "version"]
 
 
+def test_explorer_search_spans_visible_schemas_with_literal_filters_and_cursor():
+    query = Query(
+        [
+            {"catalog": "cat", "schema": "a", "name": "member", "full_name": "cat.a.member"},
+            {"catalog": "cat", "schema": "b", "name": "member", "full_name": "cat.b.member"},
+        ]
+    )
+    result = UnityCatalogDiscovery(query, Keys()).search_tables(
+        catalog="cat", search="%_'", limit=1
+    )
+    assert result["next_after"] == "cat.a.member"
+    assert result["items"][0]["full_name"] == "cat.a.member"
+    sql, params = query.calls[0]
+    assert "system.information_schema.tables" in sql
+    assert "data_source_format = 'DELTA'" in sql
+    assert "%_'" not in sql and params["search"] == "%_'"
+    assert params["catalog"] == "cat" and params["schema"] == ""
+    assert "LIMIT 2" in sql
+
+
+def test_explorer_search_schema_requires_catalog_and_validates_cursor():
+    discovery = UnityCatalogDiscovery(Query(), Keys())
+    for kwargs in [
+        {"schema": "sch"},
+        {"catalog": "bad`"},
+        {"after": "not.qualified"},
+        {"limit": 101},
+    ]:
+        with pytest.raises(ValueError):
+            discovery.search_tables(**kwargs)
+
+
 def test_catalog_search_is_bounded_literal_and_paginated():
     query = Query([{"name": "cat1"}, {"name": "cat2"}, {"name": "cat3"}])
     page = UnityCatalogDiscovery(query, Keys()).catalogs(search="%'_", limit=2)
