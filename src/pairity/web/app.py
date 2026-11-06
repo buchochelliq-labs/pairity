@@ -166,6 +166,23 @@ def create_app(service_factory=None, *, mode="databricks", static_dir=None):
     def inspect(body: Inspect, ctx=dependency):
         return ctx[1].inspect_pair(body.content, body.format, body.pair_id)
 
+    @app.get("/api/v1/discovery/search")
+    def find_tables(
+        catalog: str | None = None,
+        schema: str | None = None,
+        search: str = Query(default="", max_length=256),
+        after: str = Query(default="", max_length=800),
+        limit: int = Query(default=50, ge=1, le=100),
+        ctx=dependency,
+    ):
+        return ctx[1].find_tables(
+            catalog=catalog, schema=schema, search=search, after=after, limit=limit
+        )
+
+    @app.get("/api/v1/discovery/table")
+    def describe_table(table: str, ctx=dependency):
+        return ctx[1].catalog_discovery().describe(table)
+
     @app.get("/api/v1/suites")
     def suites(ctx=dependency):
         return {"items": ctx[1].list_suites()}

@@ -27,7 +27,7 @@ export async function api<T = any>(
     throw new ApiError(
       response.status,
       response.status === 409
-        ? "This suite changed since you opened it. Reload the saved revision before applying your changes."
+        ? "This suite changed since you opened it. Review the latest revision before applying your changes."
         : typeof data.detail === "string"
           ? data.detail
           : JSON.stringify(data.detail || data),

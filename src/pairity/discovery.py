@@ -94,3 +94,32 @@ class UnityCatalogDiscovery:
             "columns": columns,
             "primary_key": self.metadata.primary_key(table) or [],
         }
+
+    def search_tables(self, *, catalog=None, schema=None, search="", after="", limit=50):
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("Discovery page size must be 1..100")
+        if not isinstance(search, str) or len(search) > 256:
+            raise ValueError("Search must be at most 256 characters")
+        if catalog:
+            _identifier(catalog)
+        if schema:
+            if not catalog:
+                raise ValueError("Choose a catalog before a schema")
+            _identifier(schema)
+        # A cursor is an opaque, bound comparison value, not a source identifier.
+        # Metadata can contain names outside the configuration schema's domain.
+        if not isinstance(after, str) or len(after) > 800:
+            raise ValueError("Cursor must be at most 800 characters")
+        full_name = "concat_ws('.', table_catalog, table_schema, table_name)"
+        rows = self.query(
+            "SELECT table_catalog AS catalog, table_schema AS schema, table_name AS name, "
+            f"{full_name} AS full_name FROM system.information_schema.tables "
+            "WHERE data_source_format = 'DELTA' "
+            "AND (:catalog = '' OR table_catalog = :catalog) "
+            "AND (:schema = '' OR table_schema = :schema) "
+            f"AND contains(lower({full_name}), lower(:search)) "
+            f"AND {full_name} > :after ORDER BY {full_name} LIMIT {limit + 1}",
+            {"catalog": catalog or "", "schema": schema or "", "search": search, "after": after},
+        )
+        items = rows[:limit]
+        return {"items": items, "next_after": items[-1]["full_name"] if len(rows) > limit else None}
