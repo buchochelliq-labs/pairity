@@ -92,6 +92,8 @@ class Workbench:
         return inspect_pair(load_config(content, format), pair_id, self.catalog_discovery())
 
     def find_tables(self, *, catalog=None, schema=None, search="", after="", limit=50):
+        if not isinstance(after, str) or len(after) > 800:
+            raise ValueError("Cursor must be at most 800 characters")
         provider = self.catalog_discovery()
         find = getattr(provider, "search_tables", None)
         if callable(find):
@@ -101,13 +103,12 @@ class Workbench:
             raise ValueError(
                 "This catalog provider requires a catalog and schema; choose both to browse tables"
             )
-        from pairity.metadata import split_table
-
         cursor = ""
         if after:
-            previous_catalog, previous_schema, cursor = split_table(after)
-            if (previous_catalog, previous_schema) != (catalog, schema):
+            prefix = f"{catalog}.{schema}."
+            if not after.startswith(prefix) or len(after) == len(prefix):
                 raise ValueError("Table cursor belongs to a different schema")
+            cursor = after[len(prefix) :]
         page = provider.tables(catalog, schema, search=search, after=cursor, limit=limit)
         return {
             "items": [

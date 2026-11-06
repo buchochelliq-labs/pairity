@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from pairity.workbench import FileSuiteCatalog, Workbench
@@ -72,6 +73,39 @@ def test_explorer_endpoints_use_injected_discovery_and_keep_schema_only_adapters
     result = c.get("/api/v1/discovery/table?table=cat.sch.member").json()
     assert result["primary_key"] == ["id"]
     assert calls == ["cat.sch.member"]
+
+
+@pytest.mark.parametrize("name", ["2026_sales", "customer's_sales"])
+def test_explorer_v1_adapter_can_resume_every_emitted_table_cursor(tmp_path, name):
+    from types import SimpleNamespace
+
+    from pairity.web.app import create_app
+
+    cursors = []
+
+    def tables(catalog, schema, **paging):
+        cursors.append(paging["after"])
+        if not paging["after"]:
+            return {"items": [{"name": name}], "next_after": name}
+        return {"items": [{"name": "z_sales"}], "next_after": None}
+
+    service = Workbench(
+        FileSuiteCatalog(tmp_path), discovery=SimpleNamespace(api_version=1, tables=tables)
+    )
+    c = TestClient(create_app(lambda request: ("tester", service), mode="local"))
+    params = {"catalog": "cat", "schema": "sch"}
+    page = c.get("/api/v1/discovery/search", params=params).json()
+    result = c.get("/api/v1/discovery/search", params=params | {"after": page["next_after"]})
+    assert result.status_code == 200
+    assert result.json()["items"][0]["name"] == "z_sales"
+    assert cursors == ["", name]
+    assert (
+        c.get(
+            "/api/v1/discovery/search", params=params | {"after": f"cat.other.{name}"}
+        ).status_code
+        == 422
+    )
+    assert len(cursors) == 2
 
 
 def test_hosted_app_requires_forwarded_identity(tmp_path):

@@ -44,12 +44,31 @@ def test_explorer_search_spans_visible_schemas_with_literal_filters_and_cursor()
     assert "LIMIT 2" in sql
 
 
-def test_explorer_search_schema_requires_catalog_and_validates_cursor():
+@pytest.mark.parametrize("name", ["2026_sales", "sales-2026", "ventes_été", "customer's_sales"])
+def test_explorer_search_accepts_its_emitted_cursor_as_a_bound_value(name):
+    first = {"catalog": "cat", "schema": "sch", "name": name, "full_name": f"cat.sch.{name}"}
+    second = {"catalog": "cat", "schema": "sch", "name": "z_sales", "full_name": "cat.sch.z_sales"}
+    query = Query([first, second], [second])
+    discovery = UnityCatalogDiscovery(query, Keys())
+    page = discovery.search_tables(catalog="cat", schema="sch", limit=1)
+    next_page = discovery.search_tables(
+        catalog="cat", schema="sch", after=page["next_after"], limit=1
+    )
+    assert next_page == {"items": [second], "next_after": None}
+    sql, params = query.calls[1]
+    assert params["after"] == first["full_name"]
+    assert first["full_name"] not in sql
+
+
+def test_explorer_search_schema_requires_catalog_and_bounds_cursor():
     discovery = UnityCatalogDiscovery(Query(), Keys())
     for kwargs in [
         {"schema": "sch"},
         {"catalog": "bad`"},
-        {"after": "not.qualified"},
+        {"after": "x" * 801},
+        {"after": None},
+        {"after": 0},
+        {"after": []},
         {"limit": 101},
     ]:
         with pytest.raises(ValueError):

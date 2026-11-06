@@ -106,8 +106,10 @@ class UnityCatalogDiscovery:
             if not catalog:
                 raise ValueError("Choose a catalog before a schema")
             _identifier(schema)
-        if after:
-            split_table(after)
+        # A cursor is an opaque, bound comparison value, not a source identifier.
+        # Metadata can contain names outside the configuration schema's domain.
+        if not isinstance(after, str) or len(after) > 800:
+            raise ValueError("Cursor must be at most 800 characters")
         full_name = "concat_ws('.', table_catalog, table_schema, table_name)"
         rows = self.query(
             "SELECT table_catalog AS catalog, table_schema AS schema, table_name AS name, "
