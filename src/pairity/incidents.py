@@ -63,6 +63,10 @@ def _pin(source, metadata, explicit_version=None):
                 raise ValueError("Missing or mismatched recorded source leaf")
             resolved = leaf.get("version")
             expected = node.version if node.version is not None else explicit_version
+            if leaf.get("as_of") != node.as_of or leaf.get("filters", []) != [
+                f.model_dump(exclude_none=True) for f in node.where
+            ]:
+                raise ValueError("Recorded as_of or filters do not match configuration")
             if (
                 leaf.get("snapshot_pinned") is not True
                 or type(resolved) is not int
@@ -86,13 +90,40 @@ def _pin(source, metadata, explicit_version=None):
 
 def _source_sql(node):
     if node.kind == "table":
-        return f"SELECT * FROM {quote_table(node.table)} VERSION AS OF {node.version}"
+        sql = f"SELECT * FROM {quote_table(node.table)} VERSION AS OF {node.version}"
+        if node.where:
+            sql += " WHERE " + " AND ".join(_filter_sql(item) for item in node.where)
+        return sql
     if node.kind == "deduplicate":
         return f"SELECT DISTINCT * FROM ({_source_sql(node.source)}) AS source"
     if node.kind == "sql":
         return _sql_source_sql(node)
     # The engine unions by name; positional SQL would silently change semantics.
     raise ValueError("Union-by-name SQL needs recorded column order; use Python reproduction")
+
+
+def _sql_literal(value):
+    if type(value) is bool:
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    # Spark string literals treat backslash as an escape character.
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _filter_sql(item):
+    column = "`" + item.column.replace("`", "``") + "`"
+    if item.op == "is_null":
+        return f"{column} IS NULL"
+    if item.op == "is_not_null":
+        return f"{column} IS NOT NULL"
+    if item.op in {"in", "not_in"}:
+        values = ", ".join(_sql_literal(v) for v in item.value)
+        return f"{column} {'NOT IN' if item.op == 'not_in' else 'IN'} ({values})"
+    if item.op == "between":
+        low, high = (_sql_literal(v) for v in item.value)
+        return f"{column} BETWEEN {low} AND {high}"
+    return f"{column} {item.op} {_sql_literal(item.value)}"
 
 
 def _sql_source_sql(node):

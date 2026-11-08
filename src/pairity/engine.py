@@ -28,6 +28,10 @@ class ComparisonRunner:
             def read(source, version):
                 if isinstance(source, str):
                     source = TableSource(table=source, version=version)
+                if isinstance(source, TableSource) and (source.as_of or source.where):
+                    if self.source_resolver is None:
+                        raise BlockedComparison("as_of and where need a source resolver")
+                    return self.source_resolver.read(source, self.reader, cache)
                 if isinstance(source, TableSource):
                     key = (source.table, source.version)
                     if key not in cache:

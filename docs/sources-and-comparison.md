@@ -34,6 +34,45 @@ pairs:
 
 Template inputs are typed source objects, not string substitution or executable Python. Templates can compose other templates; unknown references, missing/extra inputs, unbound parameters and cycles are rejected. Nesting is limited to 32 levels. Derived sources require explicit PK mappings; structured table sources retain metadata discovery. An explicit table version belongs inside that table source.
 
+## Snapshot selection and row scoping
+
+A structured table source can select its snapshot by `version` or by `as_of`, and scope rows with `where`:
+
+```yaml
+baseline:
+  kind: table
+  table: prod.sales.orders
+  as_of: '2026-01-31T23:59:59Z'     # explicit offset required
+  where:
+    - {column: order_date, op: between, value: ['2026-01-01', '2026-01-31']}
+    - {column: region, op: in, value: [EU, US]}
+    - {column: deleted_at, op: is_null}
+```
+
+**`as_of`** resolves once to the newest Delta version committed at or before that instant, which matches Delta's `timestampAsOf`. The comparison then reads that version, and the input record keeps both. Naive timestamps are rejected because they depend on the session time zone; `Z` and `+09:00` forms of the same instant resolve identically. The following block the pair:
+- an instant in the future, because a later commit would change the answer;
+- an instant before the oldest retained commit;
+- a `version` that disagrees with what `as_of` resolves to.
+
+The serverless Job resolves `as_of` once per table and instant during preparation and keeps it, so each pair task re-checks the resolution against the same history.
+
+**`where`** filters are ANDed together and applied through DataFrame APIs. They are never rendered into the executed SQL. Operators are `=`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not_in` (1 to 1000 values), `between` (inclusive `[low, high]`), `is_null` and `is_not_null`. Values are validated against the column type before the comparison runs:
+
+| Column type | Accepted value |
+|---|---|
+| integral | integer within range |
+| decimal | integer or decimal string with at most the column's scale and precision; floats are rejected because they cannot state exact boundaries |
+| float/double | number |
+| string | string |
+| boolean | `true`/`false` |
+| date | ISO date `YYYY-MM-DD` |
+| timestamp | ISO instant with offset, compared as an instant |
+| timestamp_ntz | ISO date-time without offset, compared as wall-clock time |
+
+A missing column or invalid value blocks the pair, and the message lists every problem. As in SQL, a comparison with null excludes the row, so `!=` and `not_in` never match nulls; add `is_null` filters explicitly. Filtering on partition columns lets Delta skip files. Filters and `as_of` are recorded on each input leaf, and incident `reproduce.sql` renders them after `VERSION AS OF` with escaped literals. Export marks reproduction as not ready if the recorded scope differs from the configuration.
+
+Pinned reads are stable: a snapshot read at a version returns the same rows on every Spark action and on retries, even after the table receives new commits. Different tables at equal version numbers are unrelated. For richer scoping, such as joins or computed predicates, use a [SQL source](#read-only-sql-sources) with bound parameters.
+
 The `SourceResolver` protocol separates source operations from table I/O and comparison. `SparkSourceResolver` is the built-in implementation and uses public DataFrame APIs plus guarded SQL for `sql` sources.
 
 ## Read-only SQL sources

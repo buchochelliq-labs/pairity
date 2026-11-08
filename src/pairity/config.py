@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -16,10 +17,59 @@ class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, validate_default=True)
 
 
+FilterOp = Literal[
+    "=", "!=", "<", "<=", ">", ">=", "in", "not_in", "between", "is_null", "is_not_null"
+]
+FilterScalar = str | bool | int | Annotated[float, Field(allow_inf_nan=False)]
+
+
+def parse_instant(value: str) -> datetime:
+    """An ISO 8601 instant with an explicit offset; naive values are ambiguous."""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"Invalid ISO 8601 timestamp: {value}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("as_of requires an explicit time zone offset, for example ...Z")
+    return parsed.astimezone(timezone.utc)
+
+
+class ColumnFilter(Model):
+    """A typed row predicate applied with DataFrame APIs; never rendered into SQL text."""
+
+    column: Name
+    op: FilterOp
+    value: FilterScalar | list[FilterScalar] | None = None
+
+    @model_validator(mode="after")
+    def value_matches_operator(self):
+        if self.op in {"is_null", "is_not_null"}:
+            if self.value is not None:
+                raise ValueError(f"{self.op} takes no value")
+        elif self.op in {"in", "not_in"}:
+            if not isinstance(self.value, list) or not 1 <= len(self.value) <= 1000:
+                raise ValueError(f"{self.op} requires a list of 1 to 1000 values")
+        elif self.op == "between":
+            if not isinstance(self.value, list) or len(self.value) != 2:
+                raise ValueError("between requires [low, high]")
+        elif self.value is None or isinstance(self.value, list):
+            raise ValueError(f"{self.op} requires one non-null value")
+        return self
+
+
 class TableSource(Model):
     kind: Literal["table"] = "table"
     table: TableName
     version: NonNegative | None = None
+    as_of: str | None = None
+    where: list[ColumnFilter] = Field(default_factory=list, max_length=64)
+
+    @field_validator("as_of")
+    @classmethod
+    def instant(cls, value):
+        if value is not None:
+            parse_instant(value)
+        return value
 
 
 class UnionSource(Model):

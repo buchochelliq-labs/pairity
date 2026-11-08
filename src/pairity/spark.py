@@ -4,6 +4,7 @@ Only this optional adapter module imports PySpark. No source data is written.
 """
 
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from functools import reduce
 from operator import and_, or_
 
@@ -11,7 +12,7 @@ from py4j.clientserver import ClientServer
 from pyspark import inheritable_thread_target
 from pyspark.sql import functions as F
 
-from pairity.config import ColumnMapping
+from pairity.config import ColumnMapping, parse_instant
 from pairity.engine import ComparisonRunner, PairityEngine
 from pairity.execution import ThreadExecutionBackend
 from pairity.metadata import UnityCatalogMetadata, quote_table
@@ -315,14 +316,56 @@ class SparkTableReader:
             for name, value in previous.items():
                 context.setLocalProperty(name, value)
 
-    def read(self, table, version=None):
-        quoted = quote_table(table)
-        history = self.spark.sql(f"DESCRIBE HISTORY {quoted} LIMIT 1").first()
-        if history is None:
-            raise BlockedComparison(f"No Delta history available for {table}")
-        resolved = int(history["version"]) if version is None else version
-        frame = self.spark.read.option("versionAsOf", resolved).table(quoted)
-        return TableInput(frame, table, version=resolved, snapshot_pinned=True)
+    def read(self, table, version=None, *, as_of=None):
+        if as_of is not None:
+            resolved = delta_version_at(self.spark, table, as_of)
+            if version is not None and version != resolved:
+                raise BlockedComparison(
+                    f"{table}: version {version} conflicts with as_of {as_of}, "
+                    f"which resolves to version {resolved}"
+                )
+        elif version is None:
+            resolved = delta_latest_version(self.spark, table)
+        else:
+            resolved = version
+        frame = self.spark.read.option("versionAsOf", resolved).table(quote_table(table))
+        return TableInput(
+            frame,
+            table,
+            version=resolved,
+            snapshot_pinned=True,
+            details={"as_of": as_of} if as_of is not None else {},
+        )
+
+
+def delta_latest_version(spark, table):
+    history = spark.sql(f"DESCRIBE HISTORY {quote_table(table)} LIMIT 1").first()
+    if history is None:
+        raise BlockedComparison(f"No Delta history available for {table}")
+    return int(history["version"])
+
+
+def delta_version_at(spark, table, as_of):
+    """The newest commit at or before an instant, matching Delta timestampAsOf semantics.
+
+    A future instant would resolve differently once new commits land, so it blocks.
+    """
+    instant = parse_instant(as_of)
+    if instant > datetime.now(timezone.utc):
+        raise BlockedComparison(f"{table}: as_of {as_of} is in the future and not reproducible")
+    history = spark.sql(f"DESCRIBE HISTORY {quote_table(table)}")
+    # An aware datetime literal is an exact instant, independent of the session time zone.
+    found = (
+        history.where(F.col("timestamp") <= F.lit(instant))
+        .agg(F.max("version").alias("version"))
+        .first()["version"]
+    )
+    if found is None:
+        raise BlockedComparison(
+            f"{table}: no retained Delta version at or before {as_of}; history may have "
+            "been vacuumed or the table did not exist yet"
+        )
+    return int(found)
 
 
 class SparkExecutionBackend(ThreadExecutionBackend):
