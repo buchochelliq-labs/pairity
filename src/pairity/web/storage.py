@@ -169,13 +169,30 @@ def source_tables(config):
     return sorted(tables)
 
 
+def source_access_message(table, error):
+    """Name the table and the exact grants a refused source check needs."""
+    catalog, schema, _ = table.split(".")
+    text = str(error)
+    if "42501" in text or "PERMISSION" in text:
+        return (
+            f"You cannot read source table {table}. Ask its owner to grant you "
+            f"USE CATALOG on {catalog}, USE SCHEMA on {catalog}.{schema} and SELECT on "
+            f"{table} (directly or through a group); the Job's run identity needs the same. "
+            f"No Job was submitted. Details: {text}"
+        )
+    return f"Source check for {table} failed; no Job was submitted. Details: {text}"
+
+
 def source_authorizer(query):
     authorized = set()  # Request-scoped: never cache across users or requests.
 
     def authorize(config):
         for table in source_tables(config):
             if table not in authorized:
-                query(f"SELECT * FROM {quote_table(table)} LIMIT 0", {})
+                try:
+                    query(f"SELECT * FROM {quote_table(table)} LIMIT 0", {})
+                except ValueError as exc:
+                    raise ValueError(source_access_message(table, exc)) from exc
                 authorized.add(table)
 
     return authorize

@@ -71,9 +71,16 @@ class JobAuthorization:
             if entry.user_name == self.user:
                 return
             if entry.group_name:
-                rows = self.query(
-                    "SELECT is_member(:group_name) AS allowed", {"group_name": entry.group_name}
-                )
+                try:
+                    rows = self.query(
+                        "SELECT is_member(:group_name) AS allowed",
+                        {"group_name": entry.group_name},
+                    )
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Checking your membership of group {entry.group_name}, which has "
+                        f"access to the Job, failed. Details: {exc}"
+                    ) from exc
                 if len(rows) == 1 and (
                     rows[0].get("allowed") is True or rows[0].get("allowed") == "true"
                 ):
