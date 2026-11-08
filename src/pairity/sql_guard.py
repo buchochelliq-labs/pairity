@@ -73,13 +73,8 @@ FORBIDDEN_WORDS = {
     "identifier",
     "tablesample",
     "stream",
-    # Nondeterministic values that are valid without parentheses.
-    "current_timestamp",
-    "current_date",
-    "localtimestamp",
-    "current_timezone",
-    "current_user",
-    "session_user",
+    # The TABLE query term reads a catalog table directly.
+    "table",
 }
 
 FORBIDDEN_FUNCTIONS = {
@@ -111,6 +106,7 @@ FORBIDDEN_FUNCTIONS = {
     "current_metastore",
     "current_version",
     "is_member",
+    "current_timezone",
     "is_account_group_member",
     # Nondeterministic.
     "rand",
@@ -145,6 +141,19 @@ _CLAUSE_END = {
     "select",
 }
 _RELATION_KEYWORDS = {"lateral", "values"}
+_QUERY_START = {"select", "with", "values", "from"}
+_ARGUMENT_FROM = {"extract", "trim", "substring", "substr", "position", "overlay"}
+# Spark resolves these single-part names to session values, quoted or not, when no
+# column has that name.
+LITERAL_FUNCTIONS = {
+    "current_date",
+    "current_timestamp",
+    "current_time",
+    "current_user",
+    "user",
+    "session_user",
+    "localtimestamp",
+}
 _CREDENTIAL_NAME = re.compile(r"(?i)(password|passwd|secret|token|credential|api_?key)")
 
 
@@ -196,16 +205,30 @@ def _check_words(tokens):
             )
         if token.kind == "punct" and token.text == ";":
             raise UnsafeQuery("A SQL source must contain exactly one statement")
-        if token.kind != "word":
+        if token.kind not in {"word", "quoted"}:
             continue
         following = tokens[index + 1] if index + 1 < len(tokens) else None
         previous = tokens[index - 1] if index else None
-        if previous is not None and previous.text == ".":
+        name = _identifier(token)
+        qualified = previous is not None and previous.text == "."
+        if following is not None and following.text == "(":
+            if qualified:
+                # A catalog function can read any table its owner can, outside the inputs.
+                raise UnsafeQuery(f"Qualified function call ...{token.text}() is not allowed")
+            if name in FORBIDDEN_FUNCTIONS or name in LITERAL_FUNCTIONS:
+                raise UnsafeQuery(f"Function {token.text}() is not allowed in a SQL source")
+        if qualified:
             continue  # A struct field or qualified column name, never a keyword.
+        if name in LITERAL_FUNCTIONS:
+            # Spark resolves these single-part names to session values even when quoted.
+            raise UnsafeQuery(
+                f"{token.text} resolves to a session value; qualify a column with this name "
+                "by its relation alias (for example o.user)"
+            )
+        if token.kind == "quoted":
+            continue  # Quoting makes a keyword an ordinary identifier.
         if token.lower in FORBIDDEN_WORDS:
             raise UnsafeQuery(f"{token.text.upper()} is not allowed in a read-only SQL source")
-        if following is not None and following.text == "(" and token.lower in FORBIDDEN_FUNCTIONS:
-            raise UnsafeQuery(f"Function {token.text}() is not allowed in a SQL source")
         if (
             token.lower == "as"
             and following is not None
@@ -216,20 +239,18 @@ def _check_words(tokens):
             raise UnsafeQuery("Time travel is not allowed; pin versions on the declared inputs")
 
 
-def _query_parens(tokens):
-    """Classify each '(' as opening a query (subquery/CTE body) or an expression."""
-    kinds = {}
-    for index in reversed(range(len(tokens))):
-        if tokens[index].text != "(":
-            continue
-        following = tokens[index + 1] if index + 1 < len(tokens) else None
-        if following is not None and following.text == "(":
-            kinds[index] = kinds.get(index + 1, "expr")  # ((SELECT ...)) is still a query
-        elif following is not None and following.lower in {"select", "with", "values"}:
-            kinds[index] = "query"
-        else:
-            kinds[index] = "expr"
-    return kinds
+def function_calls(query: str) -> list[str]:
+    """Unqualified names written as calls, for runtime checks against the function catalog."""
+    tokens = _significant(tokenize(query))
+    return sorted(
+        {
+            _identifier(token)
+            for index, token in enumerate(tokens[:-1])
+            if token.kind in {"word", "quoted"}
+            and tokens[index + 1].text == "("
+            and not (index and tokens[index - 1].text == ".")
+        }
+    )
 
 
 def _groups(tokens):
@@ -279,21 +300,32 @@ def _identifier(token):
 
 
 def _check_relations(tokens):
-    kinds = _query_parens(tokens)
+    """Check every relation position.
+
+    FROM starts a relation clause in every parenthesis context (Spark accepts FROM-first
+    subqueries such as ``(FROM t SELECT ...)``) except directly inside the functions whose
+    syntax uses FROM for an argument. A parenthesis in a relation position that does not
+    open a query is a parenthesized join, and its contents are relation positions too.
+    """
     chains, matches = _groups(tokens)
     ctes = _ctes(tokens, chains, matches)
-    stack = ["query"]  # Paren context; 'from' marks a FROM clause at that depth.
+    argument_from = [False]  # Innermost paren belongs to EXTRACT/TRIM/SUBSTRING/...
     in_from = [False]
     expect_relation = False
     for index, token in enumerate(tokens):
+        previous = tokens[index - 1] if index else None
+        following = tokens[index + 1] if index + 1 < len(tokens) else None
         if expect_relation:
             expect_relation = False
-            if token.text == "(" or token.kind == "placeholder":
-                pass
-            elif token.lower in _RELATION_KEYWORDS:
+            if token.text == "(":
+                opens_query = following is not None and following.lower in _QUERY_START
+                argument_from.append(False)
+                in_from.append(not opens_query)
+                expect_relation = not opens_query
+                continue
+            if token.kind == "placeholder" or token.lower in _RELATION_KEYWORDS:
                 pass
             elif token.kind in {"word", "quoted"}:
-                following = tokens[index + 1] if index + 1 < len(tokens) else None
                 if following is not None and following.text == "(":
                     raise UnsafeQuery(
                         f"Table-valued function {token.text}() is not allowed; "
@@ -311,25 +343,29 @@ def _check_relations(tokens):
             else:
                 raise UnsafeQuery(f"Unsupported relation syntax near {token.text!r}")
         if token.text == "(":
-            stack.append(kinds.get(index, "expr"))
+            argument_from.append(previous is not None and _identifier(previous) in _ARGUMENT_FROM)
             in_from.append(False)
             continue
         if token.text == ")":
-            if len(stack) == 1:
+            if len(in_from) == 1:
                 raise UnsafeQuery("Unbalanced parentheses")
-            stack.pop()
+            argument_from.pop()
             in_from.pop()
             continue
-        if stack[-1] != "query":
-            continue  # FROM inside EXTRACT/TRIM/SUBSTRING is not a relation.
+        if argument_from[-1]:
+            continue  # EXTRACT(YEAR FROM d), TRIM(BOTH ' ' FROM s): FROM is an argument.
         if token.lower in {"from", "join"}:
             in_from[-1] = True
             expect_relation = True
         elif token.lower in _CLAUSE_END:
             in_from[-1] = False
+        elif token.lower == "view" and previous is not None and previous.lower == "lateral":
+            # Spark's grammar places LATERAL VIEW after every relation of the clause, so the
+            # commas that follow separate column aliases, never relations.
+            in_from[-1] = False
         elif token.text == "," and in_from[-1]:
             expect_relation = True
-    if len(stack) != 1:
+    if len(in_from) != 1:
         raise UnsafeQuery("Unbalanced parentheses")
     if expect_relation:
         raise UnsafeQuery("Query ends where a relation is expected")
@@ -365,6 +401,9 @@ def check_query(query: str) -> CheckedQuery:
         raise UnsafeQuery(f"A SQL source query is limited to {MAX_QUERY_LENGTH} characters")
     if "\x00" in query:
         raise UnsafeQuery("NUL characters are not allowed")
+    if "${" in query:
+        # Spark variable substitution rewrites the raw text, including string literals.
+        raise UnsafeQuery("${...} variable substitution is not allowed anywhere in a SQL source")
     tokens = _significant(tokenize(query))
     if tokens and tokens[-1].text == ";":
         tokens = tokens[:-1]

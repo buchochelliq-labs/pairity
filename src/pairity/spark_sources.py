@@ -4,7 +4,28 @@ from uuid import uuid4
 
 from pairity.config import DeduplicateSource, SqlSource, TableSource, UnionSource
 from pairity.results import BlockedComparison, TableInput
-from pairity.sql_guard import check_query, query_hash, render
+from pairity.sql_guard import check_query, function_calls, query_hash, render
+
+
+def assert_builtin_functions(catalog, names):
+    """Block calls that resolve to persistent catalog functions.
+
+    A persistent (for example Unity Catalog SQL) function can read tables that are not
+    declared inputs. Builtins and session-temporary functions registered by trusted
+    application code are allowed. Names that do not resolve are left to query analysis.
+    """
+    for name in names:
+        try:
+            function = catalog.getFunction(name)
+        except Exception:
+            continue  # Keywords such as IN, or genuinely unknown names that analysis rejects.
+        location = (function.catalog, tuple(function.namespace or ()))
+        if location not in {(None, ()), ("system", ("builtin",))}:
+            raise BlockedComparison(
+                f"SQL source calls persistent function {name} "
+                f"({'.'.join(filter(None, [function.catalog, *location[1]]))}); "
+                "only builtin functions can be used"
+            )
 
 
 def _sql_frame(source, children):
@@ -14,6 +35,7 @@ def _sql_frame(source, children):
         if child.frame.isStreaming:
             raise BlockedComparison("SQL source inputs must be batch snapshots")
     session = next(iter(children.values())).frame.sparkSession
+    assert_builtin_functions(session.catalog, function_calls(source.query))
     token = uuid4().hex
     views = {}
     for position, (name, child) in enumerate(children.items()):

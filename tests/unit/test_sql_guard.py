@@ -51,7 +51,12 @@ def suite(source=None, templates=None):
         "/* hint */ SELECT * FROM {{a}};",
         "SELECT * FROM ((SELECT * FROM {{a}})) x",
         "SELECT * FROM {{a}} a LATERAL VIEW explode(a.items) e AS item",
-        "SELECT `set`, `user` FROM {{a}}",
+        "SELECT `set`, `table`, a.user, a.current_date FROM {{a}} a",
+        "SELECT * FROM ({{a}} x JOIN {{a}} y USING (id))",
+        "SELECT * FROM (({{a}} x CROSS JOIN {{a}} y)) z",
+        "SELECT * FROM (FROM {{a}} SELECT id) q",
+        "SELECT k, v FROM {{a}} LATERAL VIEW explode(m) t AS k, v",
+        "SELECT position('a' IN s), overlay(s PLACING 'x' FROM 2) FROM {{a}}",
         "SELECT * FROM (WITH t AS (SELECT * FROM {{a}}) SELECT * FROM t) x",
         "SELECT transform(xs, x -> x + 1) FROM {{a}}",
     ],
@@ -85,11 +90,30 @@ def test_supported_read_only_queries(query):
         ("SELECT * FROM {{a}} VERSION AS OF 3", "Time travel"),
         ("SELECT * FROM {{a}} TIMESTAMP AS OF '2026-01-01'", "Time travel"),
         ("SELECT * FROM {{a}}@v3", "'@' is not supported"),
-        ("SELECT * FROM {{a}} WHERE d = '${day}' OR d = ${day}", "'$' is not supported"),
+        ("SELECT * FROM {{a}} WHERE d = ${day}", "${...} variable substitution"),
+        # Spark substitutes ${...} in the raw text, including string literals and comments.
+        ("SELECT '${env:HOME}' AS v FROM {{a}}", "${...} variable substitution"),
+        ("SELECT 1 AS v FROM {{a}} -- ${spark.app.name}", "${...} variable substitution"),
+        # Parenthesized joins are relation positions.
+        ("SELECT s.* FROM (prod.private.payroll CROSS JOIN {{a}}) s", "declared input"),
+        ("SELECT * FROM ({{a}} CROSS JOIN payroll)", "payroll is not"),
+        ("SELECT * FROM (({{a}}), payroll)", "payroll is not"),
+        # FROM-first subqueries and the TABLE query term.
+        ("SELECT * FROM (FROM payroll SELECT *) q", "payroll is not"),
+        ("SELECT * FROM {{a}} WHERE id IN (FROM payroll SELECT id)", "payroll is not"),
+        ("SELECT id FROM {{a}} UNION TABLE payroll", "TABLE is not allowed"),
+        # Quoted, qualified and literal function names.
+        ("SELECT `secret`('scope', 'key') FROM {{a}}", "secret`() is not allowed"),
+        ("SELECT `rand`() FROM {{a}}", "rand`() is not allowed"),
+        ("SELECT cat.sch.reads_payroll(id) FROM {{a}}", "Qualified function call"),
+        ("SELECT system.builtin.secret('s', 'k') FROM {{a}}", "Qualified function call"),
+        ("SELECT `user` FROM {{a}}", "resolves to a session value"),
+        ("SELECT user FROM {{a}}", "resolves to a session value"),
+        ("SELECT current_date() FROM {{a}}", "current_date() is not allowed"),
         ("SELECT * FROM {{a}} WHERE d = ?", "'?' is not supported"),
         ("SELECT * FROM {a}", "'{' is not supported"),
         ("SELECT rand() AS r FROM {{a}}", "rand() is not allowed"),
-        ("SELECT current_timestamp FROM {{a}}", "CURRENT_TIMESTAMP is not allowed"),
+        ("SELECT current_timestamp FROM {{a}}", "resolves to a session value"),
         ("SELECT * FROM {{a}} TABLESAMPLE (10 PERCENT)", "TABLESAMPLE"),
         ("SELECT * FROM IDENTIFIER(:t)", "IDENTIFIER"),
         ("SELECT * FROM {{a}} WHERE x = : p", "must be :name"),
@@ -102,6 +126,13 @@ def test_supported_read_only_queries(query):
 def test_unsafe_or_unsupported_queries_are_rejected(query, reason):
     with pytest.raises(UnsafeQuery, match=re.escape(reason)):
         check_query(query)
+
+
+def test_function_calls_lists_unqualified_call_names_for_runtime_checks():
+    from pairity.sql_guard import function_calls
+
+    query = "SELECT upper(s), `MyUdf`(x), count(*), a.f FROM {{a}} a WHERE x IN (1)"
+    assert function_calls(query) == ["count", "in", "myudf", "upper"]
 
 
 def test_parameter_markers_skip_strings_casts_and_paths():
@@ -293,3 +324,30 @@ def test_incident_export_rejects_mismatched_recorded_query():
         incident_report(lambda recorded: [recorded[0] | {"query_sha256": "0" * 64}])
     )
     assert not json.loads(files["manifest.json"])["reproduction"]["ready"]
+
+
+def test_runtime_check_blocks_persistent_catalog_functions():
+    pytest.importorskip("pyspark")
+    from types import SimpleNamespace
+
+    from pairity.results import BlockedComparison
+    from pairity.spark_sources import assert_builtin_functions
+
+    functions = {
+        "upper": SimpleNamespace(catalog=None, namespace=None),
+        "dbx_builtin": SimpleNamespace(catalog="system", namespace=["builtin"]),
+        "app_udf": SimpleNamespace(catalog=None, namespace=[]),
+        "reads_payroll": SimpleNamespace(catalog="main", namespace=["hr"]),
+        "hive_fn": SimpleNamespace(catalog="spark_catalog", namespace=["default"]),
+    }
+
+    class Catalog:
+        def getFunction(self, name):
+            if name not in functions:
+                raise LookupError(name)
+            return functions[name]
+
+    assert_builtin_functions(Catalog(), ["upper", "dbx_builtin", "app_udf", "in", "unknown"])
+    for name, location in [("reads_payroll", "main.hr"), ("hive_fn", "spark_catalog.default")]:
+        with pytest.raises(BlockedComparison, match=f"persistent function {name} \\({location}\\)"):
+            assert_builtin_functions(Catalog(), [name])
