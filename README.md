@@ -14,7 +14,7 @@ Pairity follows the DQX library and workspace-tool architecture, with independen
 - Compare nested structs (by field name), maps (by content) and arrays (ordered or as multisets), apply exact decimal/integral tolerances, and extend comparisons with registered column comparators.
 - Compare common columns or exclude named columns; apply audited implicit casts by default, with suite/pair/column opt-outs and explicit `compare_as` directives. Configure null equality at the same levels.
 - Persist application config revisions in Postgres/Lakebase, results in Delta, and downloadable evidence files in UC Volumes through replaceable [storage adapters](docs/storage.md).
-- Pin Delta inputs to recorded table versions. Compared tables are read-only.
+- Pin Delta inputs to recorded table versions, or to the version at an explicit `as_of` instant, and scope rows with typed, validated `where` filters. Compared tables are read-only.
 - Compose metadata providers, readers, comparison backends, execution backends, configuration stores and result sinks through versioned interfaces.
 - Render CLI reports with **rs-rich's Rust-backed Python bindings**, and inspect saved runs with **intuiTUIve**.
 - Use the Databricks workbench to import/edit configurations, preview revisions, submit Jobs, review results and download incident evidence. Browse Unity Catalog Delta tables and validate primary-key mappings in the guided editor.
@@ -92,4 +92,4 @@ See [architecture and plugins](docs/architecture.md) and [configuration schema](
 
 ## Workbench and evidence
 
-The [Databricks workbench](docs/workbench.md) adds configuration upload/editing, parallel Job submission, run history and incident downloads over the same core. See [incident exports](docs/incidents.md) and the [expanded qualification matrix](docs/config-qualification.md). Live deployment of these additions is a separate release gate.
+The [Databricks workbench](docs/workbench.md) adds configuration upload/editing, parallel Job submission, run history and incident downloads over the same core. Incident bundles include exact comparison SQL that reproduces the recorded counts for every pair it can render faithfully. See [incident exports](docs/incidents.md) and the [expanded qualification matrix](docs/config-qualification.md). Live deployment of these additions is a separate release gate.

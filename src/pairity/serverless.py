@@ -7,17 +7,27 @@ from pairity.results import PairResult, RunResult, validate_pair_result
 from pairity.sources import child_sources, expand_source, replace_children
 
 
-def prepare_config(config, latest_version):
-    """Expand templates and pin each unversioned table once for the entire suite."""
+def prepare_config(config, latest_version, version_at=None):
+    """Expand templates and pin each table once for the entire suite.
+
+    Unversioned tables pin to their latest version; ``as_of`` tables pin to the version
+    that instant resolves to, keeping ``as_of`` so workers re-check the resolution.
+    """
     frozen = config.model_copy(deep=True)
     versions = {}
 
     def pin(source):
         if isinstance(source, TableSource):
             if source.version is None:
-                if source.table not in versions:
-                    versions[source.table] = latest_version(source.table)
-                source.version = versions[source.table]
+                key = (source.table, source.as_of)
+                if key not in versions:
+                    if source.as_of is None:
+                        versions[key] = latest_version(source.table)
+                    elif version_at is None:
+                        raise ValueError("as_of sources need a version_at resolver")
+                    else:
+                        versions[key] = version_at(source.table, source.as_of)
+                source.version = versions[key]
             return source
         return replace_children(source, [pin(child) for child in child_sources(source)])
 

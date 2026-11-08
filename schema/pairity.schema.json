@@ -1,5 +1,80 @@
 {
   "$defs": {
+    "ColumnFilter": {
+      "additionalProperties": false,
+      "description": "A typed row predicate applied with DataFrame APIs; never rendered into SQL text.",
+      "properties": {
+        "column": {
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f]+$",
+          "title": "Column",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "=",
+            "!=",
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "in",
+            "not_in",
+            "between",
+            "is_null",
+            "is_not_null"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "column",
+        "op"
+      ],
+      "title": "ColumnFilter",
+      "type": "object"
+    },
     "ColumnMapping": {
       "additionalProperties": false,
       "properties": {
@@ -721,6 +796,26 @@
           ],
           "default": null,
           "title": "Version"
+        },
+        "as_of": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "As Of"
+        },
+        "where": {
+          "items": {
+            "$ref": "#/$defs/ColumnFilter"
+          },
+          "maxItems": 64,
+          "title": "Where",
+          "type": "array"
         }
       },
       "required": [

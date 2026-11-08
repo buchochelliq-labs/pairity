@@ -31,6 +31,7 @@ def test_structs_compare_by_field_name_and_detect_nested_changes(spark):
     right = frame(spark, [(1, ("x", 1)), (2, ("z", 2))], "id long, v struct<b:string,a:long>")
     result = compare(left, right)
     assert result.counts["changed_rows"] == 1
+    assert result.comparators[0].pop("type_json").startswith('{"fields":')
     assert result.comparators == [
         {
             "column": "v",
@@ -214,6 +215,7 @@ def test_custom_comparators_extend_without_changing_orchestration(spark):
     rules = {"v": {"comparator": "case_insensitive"}}
     result = compare(left, right, rules, comparators=registry)
     assert result.counts["changed_rows"] == 1
+    assert result.comparators[0].pop("type_json") == '"string"'
     assert result.comparators == [
         {
             "column": "v",

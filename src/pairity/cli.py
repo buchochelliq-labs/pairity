@@ -75,7 +75,20 @@ def _parser():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("validate", help="Validate a JSON/YAML suite").add_argument("source")
     commands.add_parser("init-postgres", help="Provision Pairity application-state tables")
-    commands.add_parser("init-results", help="Provision a Delta result table").add_argument("table")
+    init_results = commands.add_parser("init-results", help="Provision a Delta result table")
+    init_results.add_argument("table")
+    init_results.add_argument(
+        "--views", action="store_true", help="Also create <table>_runs and <table>_pairs views"
+    )
+    prune = commands.add_parser(
+        "results-prune", help="Preview or remove whole old runs from a Delta result table"
+    )
+    prune.add_argument("--result-table", required=True)
+    prune.add_argument("--older-than-days", type=int, required=True)
+    prune.add_argument("--keep-latest", type=int, default=1, help="Newest runs kept per suite")
+    prune.add_argument("--suite")
+    prune.add_argument("--max-runs", type=int, default=1000)
+    prune.add_argument("--apply", action="store_true", help="Delete; without it, only preview")
     commands.add_parser("schema", help="Print the configuration JSON Schema")
     commands.add_parser("inspect", help="Explore a saved run with intuiTUIve").add_argument(
         "source"
@@ -336,8 +349,24 @@ def main(argv=None):
 
             from pairity.delta_storage import DeltaResultStore
 
-            DeltaResultStore(SparkSession.builder.getOrCreate(), args.table).initialize()
-            _display({"initialized": args.table}, args.json)
+            store = DeltaResultStore(SparkSession.builder.getOrCreate(), args.table)
+            store.initialize()
+            views = store.create_views() if args.views else {}
+            _display({"initialized": args.table, **views}, args.json)
+        elif args.command == "results-prune":
+            from pyspark.sql import SparkSession
+
+            from pairity.delta_storage import DeltaResultStore
+
+            store = DeltaResultStore(SparkSession.builder.getOrCreate(), args.result_table)
+            plan = store.retention_plan(
+                older_than_days=args.older_than_days,
+                keep_latest_per_suite=args.keep_latest,
+                suite=args.suite,
+                max_runs=args.max_runs,
+            )
+            outcome = store.apply_retention(plan) if args.apply else {"preview": True}
+            _display({**plan, **outcome}, args.json)
         elif args.command == "validate":
             config = _read(args.source)
             _display(

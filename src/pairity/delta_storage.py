@@ -3,7 +3,9 @@
 import hashlib
 import json
 import platform
+from datetime import datetime, timedelta, timezone
 
+from pyspark.sql import Window
 from pyspark.sql import functions as F
 
 from pairity import __version__
@@ -35,6 +37,7 @@ class DeltaResultStore:
         if type(retain_differences) is not bool:
             raise ValueError("retain_differences must be a boolean")
         self.spark = spark
+        self.name = table
         self.table = quote_table(table)
         self.retain_differences = retain_differences
 
@@ -214,3 +217,142 @@ class DeltaResultStore:
         if suite is not None:
             rows = rows.where(F.col("suite") == F.lit(suite))
         return rows.orderBy(F.col("finished_at").desc(), F.col("run_id")).limit(limit)
+
+    # --- Retention -------------------------------------------------------------------
+
+    def _eligible(self, criteria):
+        """Reports eligible for removal under the criteria, oldest first."""
+        cutoff = datetime.fromisoformat(criteria["cutoff"])
+        reports = (
+            self.spark.table(self.table)
+            .where(F.col("record_type") == "report")
+            .select("run_id", "suite", "finished_at")
+            .withColumn("finished", F.col("finished_at").cast("timestamp"))
+        )
+        if criteria["suite"] is not None:
+            reports = reports.where(F.col("suite") == F.lit(criteria["suite"]))
+        newest = Window.partitionBy("suite").orderBy(F.col("finished").desc(), F.col("run_id"))
+        return (
+            reports.withColumn("rank", F.row_number().over(newest))
+            # An unparseable finish time is never treated as old.
+            .where(F.col("finished").isNotNull())
+            .where(F.col("finished") < F.lit(cutoff))
+            .where(F.col("rank") > F.lit(criteria["keep_latest_per_suite"]))
+            .orderBy("finished", "run_id")
+        )
+
+    def retention_plan(
+        self, *, older_than_days, keep_latest_per_suite=1, suite=None, max_runs=1000, now=None
+    ):
+        """Preview whole runs to remove; nothing is deleted.
+
+        A run is eligible when it finished before the cutoff and is not among the
+        ``keep_latest_per_suite`` newest runs of its suite. Plans are capped at
+        ``max_runs``; ``truncated`` reports that more runs remain eligible.
+        """
+        if type(older_than_days) is not int or older_than_days < 1:
+            raise ValueError("older_than_days must be a positive integer")
+        if type(keep_latest_per_suite) is not int or keep_latest_per_suite < 0:
+            raise ValueError("keep_latest_per_suite must be a nonnegative integer")
+        if type(max_runs) is not int or not 1 <= max_runs <= 1000:
+            raise ValueError("max_runs must be between 1 and 1000")
+        now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        criteria = {
+            "cutoff": (now - timedelta(days=older_than_days)).isoformat(),
+            "keep_latest_per_suite": keep_latest_per_suite,
+            "suite": suite,
+        }
+        rows = self._eligible(criteria).limit(max_runs + 1).collect()
+        return {
+            "table": self.name,
+            "criteria": criteria,
+            "runs": [
+                {"run_id": r["run_id"], "suite": r["suite"], "finished_at": r["finished_at"]}
+                for r in rows[:max_runs]
+            ],
+            "truncated": len(rows) > max_runs,
+        }
+
+    def apply_retention(self, plan):
+        """Remove the planned runs that are still eligible, in one Delta commit.
+
+        Reports and their retained differences are deleted together, so no report can
+        claim evidence that is gone. Eligibility is re-checked against the table's
+        current state, so runs that became newest-in-suite since the plan are kept.
+        """
+        if plan.get("table") != self.name:
+            raise ValueError("Retention plan was made for a different result table")
+        planned = {run["run_id"] for run in plan["runs"]}
+        still = {r["run_id"] for r in self._eligible(plan["criteria"]).collect()}
+        targets = sorted(planned & still)
+        if not targets:
+            return {"deleted": [], "kept": sorted(planned)}
+        markers = ", ".join(f":run{i}" for i in range(len(targets)))
+        self.spark.sql(
+            f"DELETE FROM {self.table} WHERE run_id IN ({markers})",
+            args={f"run{i}": run_id for i, run_id in enumerate(targets)},
+        )
+        remaining = self.spark.table(self.table).where(F.col("run_id").isin(targets)).limit(1)
+        if remaining.count():
+            raise ValueError("Retention delete did not remove every planned run")
+        return {"deleted": targets, "kept": sorted(planned - set(targets))}
+
+    # --- Analytical views ----------------------------------------------------------
+
+    def create_views(self, *, runs_view=None, pairs_view=None):
+        """Create or replace read-only views decoding stored reports for SQL analysis.
+
+        ``<table>_runs`` has one row per completed run; ``<table>_pairs`` has one row
+        per pair outcome with counts and per-column change counts, suitable for
+        comparing a pair across runs.
+        """
+        runs_view = quote_table(runs_view or self.name + "_runs")
+        pairs_view = quote_table(pairs_view or self.name + "_pairs")
+        report = "get_json_object(payload, '$.report"
+        self.spark.sql(
+            f"""CREATE OR REPLACE VIEW {runs_view} AS
+SELECT
+  run_id,
+  suite,
+  {report}.status') AS status,
+  {report}.config_hash') AS config_hash,
+  CAST({report}.started_at') AS TIMESTAMP) AS started_at,
+  CAST(finished_at AS TIMESTAMP) AS finished_at,
+  size(from_json({report}.pairs'), 'array<string>')) AS pair_count,
+  CAST(get_json_object(payload, '$.differences_retained') AS BOOLEAN) AS differences_retained,
+  get_json_object(payload, '$.runtime.pairity') AS pairity_version,
+  get_json_object(payload, '$.runtime.spark') AS spark_version,
+  report_hash
+FROM {self.table}
+WHERE record_type = 'report'"""
+        )
+        pair_type = (
+            "array<struct<pair_id:string,status:string,reason:string,"
+            "counts:struct<baseline_rows:bigint,candidate_rows:bigint,matched_rows:bigint,"
+            "changed_rows:bigint,missing_rows:bigint,extra_rows:bigint>,"
+            "column_changes:map<string,bigint>,schema_differences:array<string>>>"
+        )
+        self.spark.sql(
+            f"""CREATE OR REPLACE VIEW {pairs_view} AS
+SELECT
+  r.run_id,
+  r.suite,
+  CAST(r.finished_at AS TIMESTAMP) AS finished_at,
+  p.pair_id,
+  p.status,
+  p.reason,
+  p.counts.baseline_rows,
+  p.counts.candidate_rows,
+  p.counts.matched_rows,
+  p.counts.changed_rows,
+  p.counts.missing_rows,
+  p.counts.extra_rows,
+  p.column_changes,
+  p.schema_differences
+FROM {self.table} r
+LATERAL VIEW explode(from_json({report}.pairs'), '{pair_type}')) pairs AS p
+WHERE r.record_type = 'report'"""
+        )
+        return {"runs_view": runs_view, "pairs_view": pairs_view}

@@ -30,7 +30,6 @@ def _artifacts(dbutils):
 
 
 def prepare(spark, dbutils):
-    from pairity.metadata import quote_table
 
     path = Path(dbutils.widgets.get("config_path"))
     config = load_config(path.read_text(), path.suffix.lstrip("."))
@@ -47,11 +46,12 @@ def prepare(spark, dbutils):
     artifacts = _artifacts(dbutils)
 
     def publish():
+        from pairity.spark import delta_latest_version, delta_version_at
+
         frozen = prepare_config(
             config,
-            lambda table: int(
-                spark.sql(f"DESCRIBE HISTORY {quote_table(table)} LIMIT 1").first()["version"]
-            ),
+            lambda table: delta_latest_version(spark, table),
+            lambda table, as_of: delta_version_at(spark, table, as_of),
         )
         manifest = {
             "config": frozen.model_dump(exclude_none=True),
