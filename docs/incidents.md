@@ -43,14 +43,23 @@ collation settings were not recorded by the report schema, so the export cannot
 promise byte-for-byte or semantic equivalence across runtime changes. The manifest's
 `reproduction.ready` means pins/keys are available, not that the rerun was executed.
 
-SQL is explicitly **diagnostic**, not an equivalent comparison query. It includes
-pinned table reads, supported dedup reads, and raw key null/duplicate checks. Key checks
-precede casts and can differ from validation after configured casts. For composed
-unions, the export includes individually pinned leaf reads but marks union SQL
-unsupported: persisted reports lack column order needed to safely reproduce the
-engine's `unionByName` semantics. Full comparison SQL remains unsupported for all
-shapes. Use Python for comparison semantics; do not interpret these SQL snippets as
-certification of row equality.
+`reproduce.sql` contains pinned source reads, raw key null/duplicate checks and, where it can be rendered faithfully, **exact comparison SQL** for each pair. The comparison queries come from the recorded outcome, not from a generic full outer join:
+
+- the resolved keys and value-column mappings, including renamed columns;
+- the recorded casts, applied with `try_cast` to the same targets;
+- the effective null policy for each column;
+- each column's recorded comparator: float tolerances, exact decimal/integral tolerances (the same floored literal the engine uses), and nested policies (structs by field name, maps by content, arrays ordered or as multisets).
+
+Each pair gets a counts query (`equal_rows`, `changed_rows`, `missing_rows`, `extra_rows` and a `column:<name>` count per value column) and a query listing the missing (baseline-only), extra (candidate-only) and changed rows with their changed columns. Source reads pin `VERSION AS OF` and apply recorded `where` filters, so the queries keep reproducing the recorded counts after the tables change, as long as those Delta versions are retained. `manifest.json` records `reproduction.exact_comparison_sql` per pair, and the summary lists which pairs have it.
+
+Exact SQL is marked UNSUPPORTED, rather than approximated, when:
+- a source is a union (persisted reports lack the column order needed to reproduce `unionByName`);
+- a column uses a custom comparator;
+- the report predates recorded comparator types;
+- no row comparison ran;
+- the compared columns were not recorded.
+
+Use `reproduce.py` for those pairs. Raw key checks run before casts and can differ from validation after configured casts. The renderer is tested for equivalence against the engine on fixtures covering scalars, missing/extra rows, per-column null policies, float NaN/infinity/relative tolerances, exact decimal and integral tolerances, nested structs/maps/unordered arrays, casts and renamed composite keys, and end to end on Delta tables after later commits.
 
 ## Optional samples
 

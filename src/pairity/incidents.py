@@ -10,7 +10,8 @@ import textwrap
 import zipfile
 from importlib.metadata import PackageNotFoundError, version
 
-from pairity.config import SqlSource, SuiteConfig, TableSource, resolve_settings
+from pairity.comparison_sql import UnsupportedSql, comparison_sql
+from pairity.config import ColumnMapping, SqlSource, SuiteConfig, TableSource, resolve_settings
 from pairity.metadata import quote_table
 from pairity.serialization import dump_config
 from pairity.sources import child_sources, expand_source, leaf_tables, replace_children
@@ -145,13 +146,37 @@ def _sql_source_sql(node):
     return head + body
 
 
-def _sql(config):
+def _comparison(pair, outcome, settings, baseline_sql, candidate_sql):
+    """Exact comparison SQL for one recorded outcome, or the reason it is unsupported."""
+    if outcome.get("counts") is None:
+        raise UnsupportedSql("No row comparison was executed for this outcome")
+    names = list(outcome.get("column_changes") or {})
+    if not names and not settings.allow_key_only:
+        raise UnsupportedSql("The compared value columns were not recorded")
+    mapped = {mapping.baseline: mapping for mapping in pair.columns}
+    columns = [mapped.get(name) or ColumnMapping(baseline=name, candidate=name) for name in names]
+    return comparison_sql(
+        baseline_sql,
+        candidate_sql,
+        keys=pair.keys or [],
+        columns=columns,
+        settings=settings,
+        casts=outcome.get("casts") or [],
+        comparators=outcome.get("comparators") or [],
+    )
+
+
+def _sql(config, outcomes):
+    """Pinned source reads, key checks and, where faithful, exact comparison queries."""
     lines = [
-        "-- Exact comparison SQL: UNSUPPORTED. Use reproduce.py for engine semantics.",
-        "-- Queries below are diagnostic source reads and raw key checks only.",
+        "-- Pinned source reads, raw key checks and exact comparison SQL per pair.",
+        "-- Comparison queries reproduce the recorded casts, null policies, tolerances and",
+        "-- nested policies. Pairs marked UNSUPPORTED need reproduce.py instead.",
         "-- Raw key checks do not include configured comparison casts.",
     ]
+    exact = {}
     for index, pair in enumerate(config.pairs, 1):
+        rendered = {}
         for side in ("baseline", "candidate"):
             node = getattr(pair, side)
             try:
@@ -160,6 +185,7 @@ def _sql(config):
                 lines.append(f"-- Pair {index} {side}: UNSUPPORTED: {exc}")
                 lines.extend(_source_sql(leaf) + ";" for leaf in leaf_tables(node))
                 continue
+            rendered[side] = source
             lines += [f"-- Pair {index} {side}: pinned source read", source + ";"]
             if pair.keys:
                 keys = ["`" + getattr(key, side).replace("`", "``") + "`" for key in pair.keys]
@@ -171,7 +197,28 @@ def _sql(config):
                     f"SELECT {joined}, COUNT(*) AS duplicate_count FROM ({source}) "
                     f"AS source GROUP BY {joined} HAVING COUNT(*) > 1;",
                 ]
-    return ("\n\n".join(lines) + "\n").encode()
+        try:
+            if len(rendered) != 2:
+                raise UnsupportedSql("A source has no faithful SQL rendering")
+            counts_sql, differences_sql = _comparison(
+                pair,
+                outcomes[pair.id],
+                resolve_settings(config, pair),
+                rendered["baseline"],
+                rendered["candidate"],
+            )
+        except UnsupportedSql as exc:
+            exact[pair.id] = False
+            lines.append(f"-- Pair {index} comparison: UNSUPPORTED: {exc}")
+            continue
+        exact[pair.id] = True
+        lines += [
+            f"-- Pair {index} comparison counts (expected: {pair.id} in result.json)",
+            counts_sql + ";",
+            f"-- Pair {index} missing (baseline-only), extra (candidate-only) and changed rows",
+            differences_sql + ";",
+        ]
+    return ("\n\n".join(lines) + "\n").encode(), exact
 
 
 _REPRODUCTION = '''"""Run on an authorized Classic Spark/Delta cluster.
@@ -333,8 +380,20 @@ class IncidentExporter:
                     "Column changes: " + json.dumps(pair["column_changes"], sort_keys=True)
                 )
             lines.append("")
+        if issues:
+            reproduce_sql = b"-- UNSUPPORTED: missing validated pins; see manifest.json\n"
+            exact = {pair.id: False for pair in config.pairs}
+        else:
+            reproduce_sql, exact = _sql(config, indexed)
+        supported = [pair_id for pair_id, ok in exact.items() if ok]
+        unsupported = [pair_id for pair_id, ok in exact.items() if not ok]
+        if supported:
+            lines.append("Exact comparison SQL in reproduce.sql: " + ", ".join(supported))
+        if unsupported:
+            lines.append(
+                "Exact comparison SQL UNSUPPORTED (use reproduce.py): " + ", ".join(unsupported)
+            )
         lines += [
-            "Exact comparison SQL: UNSUPPORTED; use the Python engine reproduction.",
             "Runtime settings/version were not recorded; identical rerun is not guaranteed.",
             "Delta versions require retention and access privileges.",
         ]
@@ -367,12 +426,11 @@ class IncidentExporter:
         output = io.BytesIO()
         picture.save(output, format="PNG", optimize=False)
         files["summary.png"] = output.getvalue()
+        files["reproduce.sql"] = reproduce_sql
         if issues:
             files["reproduce.py"] = ("raise SystemExit(" + repr("; ".join(issues)) + ")\n").encode()
-            files["reproduce.sql"] = b"-- UNSUPPORTED: missing validated pins; see manifest.json\n"
         else:
             files["reproduce.py"] = _REPRODUCTION.encode()
-            files["reproduce.sql"] = _sql(config)
         if self.include_samples and samples is not None:
             bounded = {}
             remaining = self.max_sample_rows
@@ -400,7 +458,7 @@ class IncidentExporter:
             "reproduction": {
                 "ready": not issues,
                 "issues": issues,
-                "exact_comparison_sql": False,
+                "exact_comparison_sql": exact,
                 "runtime_settings_recorded": False,
             },
             "samples": {

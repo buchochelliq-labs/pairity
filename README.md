@@ -92,4 +92,4 @@ See [architecture and plugins](docs/architecture.md) and [configuration schema](
 
 ## Workbench and evidence
 
-The [Databricks workbench](docs/workbench.md) adds configuration upload/editing, parallel Job submission, run history and incident downloads over the same core. See [incident exports](docs/incidents.md) and the [expanded qualification matrix](docs/config-qualification.md). Live deployment of these additions is a separate release gate.
+The [Databricks workbench](docs/workbench.md) adds configuration upload/editing, parallel Job submission, run history and incident downloads over the same core. Incident bundles include exact comparison SQL that reproduces the recorded counts for every pair it can render faithfully. See [incident exports](docs/incidents.md) and the [expanded qualification matrix](docs/config-qualification.md). Live deployment of these additions is a separate release gate.

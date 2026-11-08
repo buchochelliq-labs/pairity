@@ -138,6 +138,7 @@ def _plan_comparators(frame, mappings, settings, registry):
                     "column": mapping.baseline,
                     "candidate": mapping.candidate,
                     "type": dtype.simpleString(),
+                    "type_json": dtype.json(),
                     "comparator": name,
                     "policy": comparator.policy(dtype, rule),
                 }
