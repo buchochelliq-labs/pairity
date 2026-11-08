@@ -10,10 +10,11 @@ import textwrap
 import zipfile
 from importlib.metadata import PackageNotFoundError, version
 
-from pairity.config import SuiteConfig, TableSource, resolve_settings
+from pairity.config import SqlSource, SuiteConfig, TableSource, resolve_settings
 from pairity.metadata import quote_table
 from pairity.serialization import dump_config
-from pairity.sources import expand_source
+from pairity.sources import child_sources, expand_source, leaf_tables, replace_children
+from pairity.sql_guard import query_hash, render, tokenize
 
 
 def _json(value):
@@ -53,6 +54,7 @@ def _redact(value, columns=()):
 def _pin(source, metadata, explicit_version=None):
     """Match leaves by traversal order, not table name (one table may have two versions)."""
     leaves = iter(metadata.get("leaves") or [metadata])
+    queries = []
 
     def visit(node):
         if isinstance(node, TableSource):
@@ -69,13 +71,16 @@ def _pin(source, metadata, explicit_version=None):
             ):
                 raise ValueError("Missing, invalid, or conflicting recorded Delta version")
             return node.model_copy(update={"version": resolved})
-        if node.kind == "union":
-            return node.model_copy(update={"sources": [visit(child) for child in node.sources]})
-        return node.model_copy(update={"source": visit(node.source)})
+        pinned = replace_children(node, [visit(child) for child in child_sources(node)])
+        if isinstance(node, SqlSource):
+            queries.append({"query_sha256": query_hash(node.query), "parameters": node.parameters})
+        return pinned
 
     result = visit(source)
     if next(leaves, None) is not None:
         raise ValueError("Unexpected extra recorded source leaves")
+    if queries != metadata.get("queries", []):
+        raise ValueError("Recorded SQL source queries or parameters do not match configuration")
     return result
 
 
@@ -84,8 +89,29 @@ def _source_sql(node):
         return f"SELECT * FROM {quote_table(node.table)} VERSION AS OF {node.version}"
     if node.kind == "deduplicate":
         return f"SELECT DISTINCT * FROM ({_source_sql(node.source)}) AS source"
+    if node.kind == "sql":
+        return _sql_source_sql(node)
     # The engine unions by name; positional SQL would silently change semantics.
     raise ValueError("Union-by-name SQL needs recorded column order; use Python reproduction")
+
+
+def _sql_source_sql(node):
+    """The guarded query with each pinned input inlined as a CTE; parameters stay markers."""
+    names = {name: f"`pairity_input_{name}`" for name in node.inputs}
+    ctes = ",\n".join(f"{names[name]} AS ({_source_sql(node.inputs[name])})" for name in names)
+    tokens = tokenize(node.query)
+    first = next(
+        i for i, t in enumerate(tokens) if t.kind not in {"ws", "line_comment", "block_comment"}
+    )
+    head, rest = "".join(t.text for t in tokens[:first]), node.query[tokens[first].start :]
+    body = render(rest, names)
+    if tokens[first].lower == "with":
+        body = f"WITH {ctes},\n{body[4:].lstrip()}"
+    else:
+        body = f"WITH {ctes}\n{body}"
+    if node.parameters:
+        head += f"-- Bind named parameters: {json.dumps(node.parameters, sort_keys=True)}\n"
+    return head + body
 
 
 def _sql(config):
@@ -101,15 +127,7 @@ def _sql(config):
                 source = _source_sql(node)
             except ValueError as exc:
                 lines.append(f"-- Pair {index} {side}: UNSUPPORTED: {exc}")
-
-                def leaves(item):
-                    if item.kind == "table":
-                        return [item]
-                    if item.kind == "union":
-                        return [leaf for child in item.sources for leaf in leaves(child)]
-                    return leaves(item.source)
-
-                lines.extend(_source_sql(leaf) + ";" for leaf in leaves(node))
+                lines.extend(_source_sql(leaf) + ";" for leaf in leaf_tables(node))
                 continue
             lines += [f"-- Pair {index} {side}: pinned source read", source + ";"]
             if pair.keys:

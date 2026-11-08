@@ -1,6 +1,6 @@
 # Sources, templates and comparison rules
 
-Each side of a pair accepts a three-part table name, a structured table source, a union, a deduplicated source, or a named template. [The YAML example](../examples/templates.yaml) and [equivalent JSON](../examples/templates.json) exercise the complete configuration.
+Each side of a pair accepts a three-part table name, a structured table source, a union, a deduplicated source, a [read-only SQL query](#read-only-sql-sources), or a named template. [The YAML example](../examples/templates.yaml) and [equivalent JSON](../examples/templates.json) exercise the complete configuration.
 
 ## Reusable source templates
 
@@ -34,7 +34,46 @@ pairs:
 
 Template inputs are typed source objects, not string substitution or executable Python. Templates can compose other templates; unknown references, missing/extra inputs, unbound parameters and cycles are rejected. Nesting is limited to 32 levels. Derived sources require explicit PK mappings; structured table sources retain metadata discovery. An explicit table version belongs inside that table source.
 
-The `SourceResolver` protocol separates source operations from table I/O and comparison. `SparkSourceResolver` is the built-in implementation and uses public DataFrame APIs. Additional transforms and raw SQL sources are not implemented in this version.
+The `SourceResolver` protocol separates source operations from table I/O and comparison. `SparkSourceResolver` is the built-in implementation and uses public DataFrame APIs plus guarded SQL for `sql` sources.
+
+## Read-only SQL sources
+
+A `sql` source runs one query over declared, pinned inputs. [The YAML example](../examples/sql-sources.yaml) and [equivalent JSON](../examples/sql-sources.json) show a reusable query template and an inline query.
+
+```yaml
+baseline:
+  kind: sql
+  query: |
+    SELECT o.order_id, c.region, o.amount
+    FROM {{orders}} o JOIN {{customers}} c ON o.customer_id = c.customer_id
+    WHERE o.order_date >= :start
+  inputs:
+    orders: prod.sales.orders                                    # any source: table, union, template...
+    customers: {kind: table, table: prod.sales.customers, version: 42}
+  parameters:
+    start: '2026-01-01'
+keys:
+  - {baseline: order_id, candidate: order_id}                    # derived sources need explicit keys
+```
+
+**Inputs and parameters are separate.** `{{name}}` placeholders are the only way a query reads data. Each placeholder must be declared in `inputs`, and every input must be used. Inputs are ordinary sources, so they are pinned to a Delta version and authorized like any other table. `:name` markers are bound by Spark as typed values (string, integer, finite float or boolean); they are never spliced into the SQL text, so a parameter can never become SQL. Every marker must be declared in `parameters`, and every parameter must be used. Parameter names that look like credentials (`token`, `secret`, `password`, ...) are rejected because parameters are recorded in results.
+
+**Supported subset.** Validation is static and happens when the configuration is loaded, so `pairity validate` and the workbench catch problems before a Job starts. A query must be:
+
+- exactly one `SELECT` or `WITH` query (one trailing `;` is ignored);
+- reading only from `{{input}}` placeholders, subqueries (including FROM-first `(FROM ... SELECT ...)`), parenthesized joins of those, `VALUES`, `LATERAL` subqueries and CTEs defined earlier in the same scope. A CTE used before its definition, inside its own body, or outside its parentheses is rejected, because Spark would resolve it as a catalog table. The `TABLE x` query term is rejected;
+- free of write, DDL and session statements (`INSERT`, `MERGE`, `CREATE`, `DROP`, `SET`, `USE`, `CALL`, ...);
+- free of table-valued functions (`range(...)`, `read_files(...)`), external or metadata readers (`secret`, `http_request`, `ai_query`, `java_method`, `current_catalog`, ...), time travel (`VERSION AS OF`, `@v`), `IDENTIFIER(...)`, `TABLESAMPLE` and `?` markers. `${...}` is rejected anywhere in the text, including string literals and comments, because Spark variable substitution rewrites the raw query before parsing;
+- deterministic: `rand`, `uuid`, `shuffle`, `now` and similar are rejected. `current_date`, `current_timestamp`, `current_user`, `user`, `session_user` and `localtimestamp` resolve to session values even without parentheses or when backtick-quoted, so these single-part names are rejected; reference a column with such a name through its relation alias (`o.user`);
+- calling only builtin functions. Qualified calls (`catalog.schema.fn(...)`) are rejected statically. At execution, each unqualified call is looked up in the function catalog and a call that resolves to a persistent catalog function blocks, because such a function can read tables that are not declared inputs. Session-temporary functions registered by the application are allowed.
+
+Blocked function names are checked whether or not they are backtick-quoted. Other keywords only apply as bare words, so quote a column named like a keyword with backticks (`` `set` ``). Semi-structured paths written without spaces (`raw:field`) and casts (`x::int`) are not parameter markers. The guard is a conservative check of this subset, not a full SQL parser. Anything it cannot classify is rejected with a reason. Run comparisons with least-privilege identities as well; the guard does not replace catalog permissions.
+
+**Execution and provenance.** Each input is registered as a uniquely named, session-scoped temporary view and the query runs with Spark named parameter binding. Both APIs are available on classic Spark and Spark Connect; serverless qualification is tracked separately. Views are not dropped, because Spark Connect re-analyzes plans on every action. The input record for a SQL source lists every leaf snapshot and a `queries` entry with the query's SHA-256 and bound parameters, including SQL sources nested inside unions or templates. An unpinned leaf makes the source `snapshot_pinned: false`. Query analysis failures block the pair. Derived results go through the same PK null/duplicate preflight, casts, column selection and comparator validation as tables.
+
+**Query templates.** Templates declare `values` alongside source `parameters`. A template's SQL refers to them as `{kind: value, name: ...}`, and the referencing template source binds them in `values`. Missing, extra and unbound values are rejected.
+
+**Incident evidence.** `reproduce.sql` renders each SQL source with its pinned inputs inlined as CTEs (`pairity_input_<name>`) and lists the parameter values to bind. Export checks that the recorded query hashes and parameters match the configuration and marks reproduction as not ready if they differ.
 
 ## Column selection
 

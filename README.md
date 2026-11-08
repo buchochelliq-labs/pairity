@@ -10,7 +10,7 @@ Pairity follows the DQX library and workspace-tool architecture, with independen
 - Parse, validate, convert, import, export and bulk-patch one shared JSON/YAML configuration model.
 - Resolve explicit single/composite PK mappings or declared Unity Catalog PKs. Missing, null or duplicate keys never produce a passing comparison.
 - Compare schemas and scalar column values with distributed Spark, reporting missing, extra and changed rows and per-column counts.
-- Compose union/deduplication sources and reuse parameterized JSON/YAML templates.
+- Compose union/deduplication sources, guarded read-only SQL queries over pinned inputs with bound parameters, and reusable parameterized JSON/YAML templates.
 - Compare nested structs (by field name), maps (by content) and arrays (ordered or as multisets), apply exact decimal/integral tolerances, and extend comparisons with registered column comparators.
 - Compare common columns or exclude named columns; apply audited implicit casts by default, with suite/pair/column opt-outs and explicit `compare_as` directives. Configure null equality at the same levels.
 - Persist application config revisions in Postgres/Lakebase, results in Delta, and downloadable evidence files in UC Volumes through replaceable [storage adapters](docs/storage.md).
