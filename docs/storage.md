@@ -59,7 +59,36 @@ rows = results.differences(run_id, pair_id)  # distributed DataFrame with JSON p
 history = results.history(suite="daily-regression", limit=100)
 ```
 
-Requesting differences from a summary-only or unexecuted comparison raises; an empty response must not imply that missing evidence proved equality. This sink stores completed runs, not live scheduling/attempt state. A retry must retain the run ID and exact evidence; rerunning the engine creates a new run. Automated retention/cleanup and dashboard views remain follow-up work in #8. Any external retention policy must remove a whole run's records consistently; never remove just the evidence while leaving a report claiming it was retained.
+Requesting differences from a summary-only or unexecuted comparison raises; an empty response must not imply that missing evidence proved equality. This sink stores completed runs, not live scheduling/attempt state. A retry must retain the run ID and exact evidence; rerunning the engine creates a new run. Any retention policy must remove a whole run's records together; never remove just the evidence while leaving a report claiming it was retained. The built-in retention below does this.
+
+### Retention
+
+```bash
+pairity results-prune --result-table catalog.pairity.results --older-than-days 90            # preview
+pairity results-prune --result-table catalog.pairity.results --older-than-days 90 --apply    # delete
+```
+
+A run is eligible when it finished before the cutoff and is not among the `--keep-latest` newest runs of its suite (default 1, so a suite's latest result is never removed by age alone; `0` disables that). `--suite` narrows the plan to one suite, and `--max-runs` (at most 1000) caps a single application. A run whose finish time cannot be parsed is never treated as old.
+
+Without `--apply` nothing is deleted and the plan lists the runs. With `--apply`, eligibility is re-checked against the table's current state, so a run that became the newest of its suite after the preview is kept. Each run's report and retained differences are then removed in one Delta `DELETE` commit. The library API is `DeltaResultStore.retention_plan(...)` and `apply_retention(plan)`. Deletion removes data from the current table version only; Delta history keeps it until `VACUUM` runs under your table's retention settings. Grant the identity that runs retention `MODIFY` on the result table, separately from comparison runtimes.
+
+### Analytical views
+
+`pairity init-results <table> --views` (or `DeltaResultStore.create_views()`) creates two views next to the table:
+
+- `<table>_runs`: one row per completed run, with status, config hash, start/finish timestamps, pair count, difference retention and runtime versions;
+- `<table>_pairs`: one row per pair outcome, with counts, `column_changes` as a map and schema differences.
+
+For example, the changed-row trend of a pair across runs:
+
+```sql
+SELECT run_id, finished_at, changed_rows, column_changes['amount'] AS amount_changes
+FROM catalog.pairity.results_pairs
+WHERE suite = 'sales' AND pair_id = 'orders'
+ORDER BY finished_at;
+```
+
+The views decode the stored, checksummed reports and are read-only. Recreate them after upgrading Pairity.
 
 ## Artifacts in one or more UC Volumes
 

@@ -199,3 +199,44 @@ def test_incident_download_and_volume_publish_use_nested_archive(tmp_path, monke
 
     files = local.download(ArtifactBundle(**result["artifact"]))
     assert files == {"incident.zip": output.read_bytes()}
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_results_prune_previews_unless_apply(monkeypatch, capsys, apply):
+    pytest.importorskip("pyspark")
+    import pyspark.sql
+
+    import pairity.delta_storage
+    from pairity.cli import main
+
+    calls = []
+
+    class Store:
+        def __init__(self, spark, table):
+            calls.append(("init", table))
+
+        def retention_plan(self, **kwargs):
+            calls.append(("plan", kwargs))
+            return {"table": "c.s.t", "runs": [{"run_id": "old"}], "truncated": False}
+
+        def apply_retention(self, plan):
+            calls.append(("apply", plan["runs"]))
+            return {"deleted": ["old"], "kept": []}
+
+    class Builder:
+        @staticmethod
+        def getOrCreate():
+            return "spark"
+
+    monkeypatch.setattr(pairity.delta_storage, "DeltaResultStore", Store)
+    monkeypatch.setattr(pyspark.sql.SparkSession, "builder", Builder)
+    argv = ["--json", "results-prune", "--result-table", "c.s.t", "--older-than-days", "90"]
+    assert main(argv + (["--apply"] if apply else [])) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert calls[1] == (
+        "plan",
+        {"older_than_days": 90, "keep_latest_per_suite": 1, "suite": None, "max_runs": 1000},
+    )
+    assert (("apply", [{"run_id": "old"}]) in calls) is apply
+    assert output.get("deleted") == (["old"] if apply else None)
+    assert output.get("preview") is (None if apply else True)
