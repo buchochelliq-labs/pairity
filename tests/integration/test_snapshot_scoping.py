@@ -84,6 +84,21 @@ def test_typed_filters_select_expected_rows(spark, frame, items, expected):
         spark.conf.set("spark.sql.session.timeZone", previous)
 
 
+def test_wide_decimal_filters_keep_exact_precision(spark):
+    wide = spark.createDataFrame(
+        [(1, Decimal("123456789012345678901234567890"), Decimal("1." + "0" * 30))],
+        "id int, big decimal(38,0), fine decimal(38,30)",
+    )
+    items = filters(
+        {"column": "big", "op": "=", "value": "123456789012345678901234567890"},
+        {"column": "fine", "op": "=", "value": 1},
+    )
+    assert ids(apply_filters(wide, items, "prod.s.t")) == [1]
+    too_precise = filters({"column": "big", "op": "=", "value": "1" * 39})
+    with pytest.raises(BlockedComparison, match="big: .* is not a valid decimal\\(38,0\\)"):
+        apply_filters(wide, too_precise, "prod.s.t")
+
+
 def test_invalid_filters_block_and_list_every_problem(frame):
     items = filters(
         {"column": "missing", "op": "=", "value": 1},

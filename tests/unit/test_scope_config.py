@@ -190,3 +190,30 @@ def test_incident_reproduction_rejects_mismatched_scope(changed):
 
     files = IncidentExporter().export(report(changed))
     assert not json.loads(files["manifest.json"])["reproduction"]["ready"]
+
+
+def test_generated_reproduction_reader_reads_pinned_as_of_sources():
+    pytest.importorskip("pyspark")
+    from contextlib import nullcontext
+
+    from pairity.config import TableSource
+    from pairity.incidents import _REPRODUCTION
+    from pairity.metadata import quote_table
+    from pairity.results import TableInput
+    from pairity.spark_sources import read_table
+
+    start = _REPRODUCTION.index("class PinnedReader")
+    namespace = {"nullcontext": nullcontext, "quote_table": quote_table, "TableInput": TableInput}
+    exec(_REPRODUCTION[start : _REPRODUCTION.index("class RecordedKeysOnly")], namespace)
+
+    class Spark:
+        class read:
+            @staticmethod
+            def option(name, value):
+                assert (name, value) == ("versionAsOf", 3)
+                return type("R", (), {"table": staticmethod(lambda quoted: "frame")})
+
+    source = TableSource(table="prod.s.orders", version=3, as_of="2026-01-01T00:00:00Z")
+    result = read_table(source, namespace["PinnedReader"](Spark()), {})
+    assert (result.frame, result.version) == ("frame", 3)
+    assert result.metadata()["as_of"] == "2026-01-01T00:00:00Z"

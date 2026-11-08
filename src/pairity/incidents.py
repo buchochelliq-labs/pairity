@@ -196,11 +196,14 @@ class PinnedReader:
         self.spark = spark
     def scope(self, run_id, pair_id):
         return nullcontext()
-    def read(self, table, version=None):
+    def read(self, table, version=None, *, as_of=None):
+        # Export already checked that as_of resolved to this recorded version; reading the
+        # pinned version avoids depending on current Delta history retention.
         if type(version) is not int or version < 0:
             raise ValueError("Refusing an unpinned read")
         frame = self.spark.read.option("versionAsOf", version).table(quote_table(table))
-        return TableInput(frame, table, version=version, snapshot_pinned=True)
+        details = {"as_of": as_of} if as_of is not None else {}
+        return TableInput(frame, table, version=version, snapshot_pinned=True, details=details)
 
 class RecordedKeysOnly:
     api_version = 1

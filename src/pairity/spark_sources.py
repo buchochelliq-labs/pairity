@@ -1,7 +1,7 @@
 """Source operations over pinned leaf frames, using public DataFrame APIs."""
 
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from functools import reduce
 from operator import and_
 from uuid import uuid4
@@ -156,14 +156,20 @@ def _filter_literal(value, dtype):
     elif isinstance(dtype, T.DecimalType):
         # Floats are rejected: a binary float cannot state an exact decimal boundary.
         if type(value) in {int, str}:
-            try:
-                number = Decimal(str(value))
-            except InvalidOperation:
-                number = None
-            if number is not None and number.is_finite():
-                scaled = number.quantize(Decimal(1).scaleb(-dtype.scale))
-                digits = len(scaled.as_tuple().digits)
-                if scaled == number and digits <= dtype.precision:
+            with localcontext() as context:
+                # The default 28-digit context cannot hold every decimal(38,s) value.
+                context.prec = 80
+                try:
+                    number = Decimal(str(value))
+                    scaled = number.quantize(Decimal(1).scaleb(-dtype.scale))
+                except InvalidOperation:
+                    scaled = None
+                if (
+                    scaled is not None
+                    and number.is_finite()
+                    and scaled == number
+                    and len(scaled.as_tuple().digits) <= dtype.precision
+                ):
                     return F.lit(scaled).cast(dtype)
     elif isinstance(dtype, (T.FloatType, T.DoubleType)):
         if type(value) in {int, float}:
