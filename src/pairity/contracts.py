@@ -41,6 +41,22 @@ class CatalogDiscovery(Protocol):
     def describe(self, table: str) -> dict: ...
 
 
+class CatalogSearch(Protocol):
+    """Optional discovery capability for searching across catalogs/schemas."""
+
+    api_version: int
+
+    def search_tables(
+        self,
+        *,
+        catalog: str | None = None,
+        schema: str | None = None,
+        search: str = "",
+        after: str = "",
+        limit: int = 50,
+    ) -> dict: ...
+
+
 class TableReader(Protocol):
     api_version: int
 

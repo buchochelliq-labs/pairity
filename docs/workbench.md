@@ -13,6 +13,13 @@ policies. Bulk patches require a pair or tag selection and a preview before appl
 Edits use optimistic revisions: stale writes return a conflict instead of silently
 overwriting another user's configuration.
 
+If a suite already exists or changed while you were editing, choose **Review latest
+revision** beside the run action. Pairity loads the latest saved revision and
+previews your existing draft against it without replacing your edits. Review the
+changes, then explicitly save or run again. A second concurrent change still
+blocks the write. Importing a JSON/YAML file never silently overwrites an existing
+suite with the same name.
+
 Choose **Save & run** for a new or edited configuration to validate and save it,
 then submit the exact saved revision. No separate preview is required for this
 explicit action; preview and save remain available for reviewing changes first.
@@ -198,22 +205,38 @@ The initial implementation and live qualification are tracked in #52. Verify
 parallel execution, cancellation, failed preparation, result loading and denied
 Job/report access in the Databricks-free environment after deployment.
 
+Before Job submission, caller-scoped SQL checks verify source access and discover
+keys when needed. SQL reads continue after the initial 30-second response wait and
+poll the same statement within a 120-second budget, allowing a suspended warehouse
+to start. They request cancellation when that budget expires. Failed SQL checks
+prevent submission and report the state, error class, SQLSTATE and statement ID
+when available. Use that ID in SQL query history for the full error. App logs record
+those diagnostic fields without raw SQL, provider messages or data values. A failed
+cancellation is reported as unconfirmed, never as a successful cancellation.
+
 ## Discover table pairs and primary keys
 
-The next UX iteration in #50 replaces the sequential dropdowns with a dedicated
-Catalog Explorer-style tree and search-results view with a **Compare with…** action.
+The pair editor opens a dedicated Catalog Explorer with catalog/schema navigation,
+a shared table-results view and a **Compare with…** action.
 No public native menu extension was found in the [Catalog Explorer documentation](https://docs.databricks.com/aws/en/catalog-explorer/).
 An optional browser extension could provide a [browser context-menu action](https://developer.chrome.com/docs/extensions/reference/api/contextMenus)
 that opens a preselected table in Pairity; it would require installation and is
 separate from a native UC integration.
 
-In a configuration's pair editor, choose **Browse Unity Catalog**. Browse each
-side independently through catalog, schema and table. Search filters names
-literally, and **More** retrieves the next page. Discovery lists Delta tables,
-matching the current engine's supported table format. **Use selected table**
-updates that side in the draft using its current version, removes any previous
-version pin for that side, and retains other pair settings and existing keys.
-Composed/template sources remain in the source editor and are never flattened.
+In a configuration's pair editor, choose **Browse Unity Catalog**. Search accessible
+Delta tables across catalogs, or narrow the scope using the catalog/schema navigation.
+Search matches literal names and qualified paths; **Load more tables** retrieves
+the next bounded page. Select a table name to inspect its columns and declared PKs.
+This inspection does not change the pair or read source records.
+
+**Compare with…** selects a baseline and searches for same-name candidates across
+catalogs. The baseline stays visible. Confirm a candidate with **Use as candidate**;
+suggestions never select it automatically. **Choose baseline** and **Choose candidate**
+switch which side you are editing. Explicit table replacement uses the current
+version, clears that side's version pin and retains other pair settings and keys.
+Browsing alone does not change pins. Composed/template sources remain in the source
+editor and are never flattened. **Done** or Escape closes the explorer; selections
+remain in the draft, ready for validation and **Save & run**.
 
 Choose **Inspect tables and keys** to check table visibility, SELECT access and
 column metadata. Matching declared UC primary keys produce an editable suggestion.
@@ -229,7 +252,7 @@ shown; actual cast validity is checked on the data by the Job. Configure cast
 directives in the JSON/YAML editor, then inspect again.
 
 **Apply key mappings** updates the same JSON/YAML draft and invalidates any existing
-save preview. Continue with preview and save to create a revision. The check is
+save preview. Continue with **Save & run**, or preview and save to create a revision. The check is
 an optional authoring aid; drafts and manual configurations retain their existing
 save flow. Missing keys still block execution, and the engine checks keys again.
 Only the key metadata is validated here, not the full value-column comparison.
@@ -241,6 +264,8 @@ Page sizes are capped at 100 and table inspection at 500 columns; larger schemas
 produce an explicit error and remain configurable manually. Query failures never
 establish readability. Discovery is unavailable in local demo mode unless a
 `CatalogDiscovery` v1 adapter is injected into the shared workbench facade.
+Cross-catalog search is an optional `CatalogSearch` capability. Existing v1 adapters
+without it can still browse after a catalog and schema are selected.
 
 UC primary keys are informational. These checks do not prove uniqueness, null
 absence or lossless casts. They inspect current metadata; the Job validates the
