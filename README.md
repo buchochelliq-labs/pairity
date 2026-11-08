@@ -11,6 +11,7 @@ Pairity follows the DQX library and workspace-tool architecture, with independen
 - Resolve explicit single/composite PK mappings or declared Unity Catalog PKs. Missing, null or duplicate keys never produce a passing comparison.
 - Compare schemas and scalar column values with distributed Spark, reporting missing, extra and changed rows and per-column counts.
 - Compose union/deduplication sources and reuse parameterized JSON/YAML templates.
+- Compare nested structs (by field name), maps (by content) and arrays (ordered or as multisets), apply exact decimal/integral tolerances, and extend comparisons with registered column comparators.
 - Compare common columns or exclude named columns; apply audited implicit casts by default, with suite/pair/column opt-outs and explicit `compare_as` directives. Configure null equality at the same levels.
 - Persist application config revisions in Postgres/Lakebase, results in Delta, and downloadable evidence files in UC Volumes through replaceable [storage adapters](docs/storage.md).
 - Pin Delta inputs to recorded table versions. Compared tables are read-only.
@@ -18,7 +19,7 @@ Pairity follows the DQX library and workspace-tool architecture, with independen
 - Render CLI reports with **rs-rich's Rust-backed Python bindings**, and inspect saved runs with **intuiTUIve**.
 - Use the Databricks workbench to import/edit configurations, preview revisions, submit Jobs, review results and download incident evidence. Browse Unity Catalog Delta tables and validate primary-key mappings in the guided editor.
 
-The serverless Job smoke and hosted App startup have succeeded on Databricks Free Edition. End-to-end App permission qualification, automated retention, retry policies, complex-type policies and optional DQX integration remain tracked in the [issues](https://github.com/buchochelliq-labs/pairity/issues). No DQX runtime dependency is installed.
+The serverless Job smoke and hosted App startup have succeeded on Databricks Free Edition. End-to-end App permission qualification, automated retention, retry policies and optional DQX integration remain tracked in the [issues](https://github.com/buchochelliq-labs/pairity/issues). No DQX runtime dependency is installed.
 
 ## Install and validate
 

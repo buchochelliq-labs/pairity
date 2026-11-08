@@ -10,7 +10,6 @@ from operator import and_, or_
 from py4j.clientserver import ClientServer
 from pyspark import inheritable_thread_target
 from pyspark.sql import functions as F
-from pyspark.sql import types as T
 
 from pairity.config import ColumnMapping
 from pairity.engine import ComparisonRunner, PairityEngine
@@ -18,24 +17,8 @@ from pairity.execution import ThreadExecutionBackend
 from pairity.metadata import UnityCatalogMetadata, quote_table
 from pairity.results import BlockedComparison, PairResult, TableInput
 from pairity.spark_casts import normalize_frames
+from pairity.spark_comparators import COMPLEX, SCALAR, ComparatorRegistry, canonical_type
 from pairity.spark_sources import SparkSourceResolver
-
-SCALAR_TYPES = (
-    T.BooleanType,
-    T.ByteType,
-    T.ShortType,
-    T.IntegerType,
-    T.LongType,
-    T.FloatType,
-    T.DoubleType,
-    T.DecimalType,
-    T.StringType,
-    T.BinaryType,
-    T.DateType,
-    T.TimestampType,
-    T.TimestampNTZType,
-    T.NullType,
-)
 
 
 def _quote(column):
@@ -69,7 +52,7 @@ def _layout(left, right, keys, columns, settings, *, check_types=True):
             raise BlockedComparison("Configured primary key column does not exist on both sides")
         if check_types and left_types[key.baseline] != right_types[key.candidate]:
             raise BlockedComparison("Primary key column types must match exactly")
-        if not isinstance(left_types[key.baseline], SCALAR_TYPES):
+        if not isinstance(left_types[key.baseline], SCALAR):
             raise BlockedComparison("Unsupported primary key type")
     if len({k.baseline for k in keys}) != len(keys) or len({k.candidate for k in keys}) != len(
         keys
@@ -106,7 +89,7 @@ def _layout(left, right, keys, columns, settings, *, check_types=True):
         differences = []
     for mapping in mappings:
         a, b = left_types[mapping.baseline], right_types[mapping.candidate]
-        if check_types and a != b:
+        if check_types and canonical_type(a) != canonical_type(b):
             differences.append(
                 f"Type changed: {mapping.baseline}: {a.simpleString()} -> {b.simpleString()}"
             )
@@ -116,55 +99,58 @@ def _layout(left, right, keys, columns, settings, *, check_types=True):
         raise BlockedComparison("No value columns to compare; set allow_key_only explicitly")
     if set(settings.column_rules) - {m.baseline for m in [*keys, *mappings]}:
         raise BlockedComparison("A column rule refers to a column that is not compared")
-    for mapping in mappings:
-        dtype = left_types[mapping.baseline]
-        if not isinstance(dtype, SCALAR_TYPES):
-            raise BlockedComparison(f"Unsupported comparison type for {mapping.baseline}: {dtype}")
-        rule = settings.column_rules.get(mapping.baseline)
-        if (
-            check_types
-            and rule
-            and (rule.absolute_tolerance or rule.relative_tolerance)
-            and not isinstance(dtype, (T.FloatType, T.DoubleType))
-        ):
-            raise BlockedComparison(
-                "Numeric tolerance currently requires float/double columns; "
-                "decimal and integer columns support exact comparison"
-            )
     return mappings, differences
 
 
-def _equal(left, right, rule, null_safe=True):
-    if rule is not None and rule.null_safe is not None:
-        null_safe = rule.null_safe
-    exact = left.eqNullSafe(right) if null_safe else F.coalesce(left == right, F.lit(False))
-    if rule is None or not (rule.absolute_tolerance or rule.relative_tolerance):
-        return exact
-    # FloatType subtraction may overflow even when the result fits in a double.
-    left, right = left.cast("double"), right.cast("double")
-    finite = (
-        left.isNotNull()
-        & right.isNotNull()
-        & ~F.isnan(left)
-        & ~F.isnan(right)
-        & (F.abs(left) != float("inf"))
-        & (F.abs(right) != float("inf"))
+def _block_complex_casts(left, right, mappings, settings):
+    """compare_as on a nested column would stringify or reshape it silently."""
+    affected = sorted(
+        m.baseline
+        for m in mappings
+        if (rule := settings.column_rules.get(m.baseline))
+        and rule.compare_as
+        and (
+            isinstance(left.schema[m.baseline].dataType, COMPLEX)
+            or isinstance(right.schema[m.candidate].dataType, COMPLEX)
+        )
     )
-    distance = F.abs(left - right)
-    within = distance <= F.lit(rule.absolute_tolerance or 0)
-    if rule.relative_tolerance:
-        scale = F.greatest(F.abs(left), F.abs(right))
-        # Opposite extreme doubles can overflow subtraction. Normalizing first
-        # bounds that distance by two and avoids an infinity <= infinity false pass.
-        scaled_distance = F.when(
-            distance == float("inf"), F.abs(left / scale - right / scale)
-        ).otherwise(distance / scale)
-        within = within | (scaled_distance <= F.lit(rule.relative_tolerance))
-    return exact | F.coalesce(finite & within, F.lit(False))
+    if affected:
+        raise BlockedComparison(
+            "compare_as is not supported for struct, array or map columns: " + ", ".join(affected)
+        )
+
+
+def _plan_comparators(frame, mappings, settings, registry):
+    """Select one comparator per value column; any unsupported column blocks the pair."""
+    plan, records, problems = [], [], []
+    for mapping in mappings:
+        dtype = frame.schema[mapping.baseline].dataType
+        rule = settings.column_rules.get(mapping.baseline)
+        name, comparator, issues = registry.resolve(dtype, rule)
+        problems += [f"{mapping.baseline}: {issue}" for issue in issues]
+        if issues:
+            continue
+        plan.append((mapping, comparator, dtype, rule))
+        if name != "exact":
+            records.append(
+                {
+                    "column": mapping.baseline,
+                    "candidate": mapping.candidate,
+                    "type": dtype.simpleString(),
+                    "comparator": name,
+                    "policy": comparator.policy(dtype, rule),
+                }
+            )
+    if problems:
+        raise BlockedComparison("Unsupported comparison policy: " + "; ".join(problems))
+    return plan, records
 
 
 class SparkComparisonBackend:
     api_version = 1
+
+    def __init__(self, comparators=None):
+        self.comparators = ComparatorRegistry(comparators)
 
     def compare(self, pair, settings, keys, baseline, candidate):
         if not keys:
@@ -183,6 +169,7 @@ class SparkComparisonBackend:
         }
         casts = []
         if not schema_diffs:
+            _block_complex_casts(left, right, [*keys, *mappings], settings)
             left, right, casts = normalize_frames(left, right, [*keys, *mappings], settings)
             if any(c["invalid_baseline_rows"] or c["invalid_candidate_rows"] for c in casts):
                 return PairResult(
@@ -208,6 +195,7 @@ class SparkComparisonBackend:
                 reason="Schema differs; row comparison was not executed",
             )
         try:
+            plan, comparators = _plan_comparators(left, mappings, settings, self.comparators)
             _validate_keys(left, [k.baseline for k in keys], "Baseline")
             _validate_keys(right, [k.candidate for k in keys], "Candidate")
         except BlockedComparison as exc:
@@ -234,14 +222,20 @@ class SparkComparisonBackend:
             (
                 m.baseline,
                 matched
-                & ~_equal(
-                    _field("b", m.baseline),
-                    _field("c", m.candidate),
-                    settings.column_rules.get(m.baseline),
-                    settings.null_safe,
+                & ~F.coalesce(
+                    comparator.equal(
+                        _field("b", m.baseline),
+                        _field("c", m.candidate),
+                        dtype,
+                        rule,
+                        settings.null_safe
+                        if rule is None or rule.null_safe is None
+                        else rule.null_safe,
+                    ),
+                    F.lit(False),
                 ),
             )
-            for m in mappings
+            for m, comparator, dtype, rule in plan
         ]
         any_changed = reduce(or_, [expr for _, expr in changed_flags], F.lit(False))
         changed_columns = F.filter(
@@ -289,6 +283,7 @@ class SparkComparisonBackend:
             counts=counts,
             casts=casts,
             ignored_columns=ignored,
+            comparators=comparators,
             column_changes={m.baseline: summary[f"col_{i}"] for i, m in enumerate(mappings)},
             differences=classified.where(F.col("kind") != "equal"),
         )

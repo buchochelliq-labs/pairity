@@ -89,10 +89,14 @@ def test_schema_drift_is_not_silently_reduced_to_common_columns(spark):
     assert any("new_col" in difference for difference in result.schema_differences)
 
 
-def test_nested_types_and_typo_exclusions_block_instead_of_silent_pass(spark):
+def test_nested_tolerances_and_typo_exclusions_block_instead_of_silent_pass(spark):
     nested = spark.createDataFrame([(1, {"a": 1})], "id long, value map<string,long>")
-    with pytest.raises(BlockedComparison, match="Unsupported"):
-        compare(nested, nested)
+    with pytest.raises(BlockedComparison, match="Unsupported comparison policy: value"):
+        compare(
+            nested,
+            nested,
+            settings=ComparisonSettings(column_rules={"value": {"absolute_tolerance": 1.0}}),
+        )
     flat = spark.createDataFrame([(1, "ok")], "id long, value string")
     with pytest.raises(BlockedComparison, match="exclusion"):
         compare(flat, flat, settings=ComparisonSettings(exclude_columns=["typo"]))
@@ -129,7 +133,7 @@ def test_null_nan_infinity_and_float_tolerance_boundaries(spark):
     assert result.counts["changed_rows"] == 2
 
 
-def test_decimal_exact_comparison_keeps_precision_and_rejects_unimplemented_tolerance(spark):
+def test_decimal_exact_comparison_keeps_precision_and_rejects_unsafe_tolerance(spark):
     left = spark.createDataFrame(
         [(1, Decimal("9007199254740992.00"))], "id long, value decimal(30,2)"
     )
@@ -137,11 +141,18 @@ def test_decimal_exact_comparison_keeps_precision_and_rejects_unimplemented_tole
         [(1, Decimal("9007199254740992.01"))], "id long, value decimal(30,2)"
     )
     assert compare(left, right).counts["changed_rows"] == 1
-    with pytest.raises(BlockedComparison, match="tolerance"):
+    tolerant = compare(
+        left,
+        right,
+        settings=ComparisonSettings(column_rules={"value": {"absolute_tolerance": 0.01}}),
+    )
+    assert tolerant.counts["changed_rows"] == 0
+    assert tolerant.comparators[0]["comparator"] == "decimal_tolerance"
+    with pytest.raises(BlockedComparison, match="relative_tolerance"):
         compare(
             left,
             right,
-            settings=ComparisonSettings(column_rules={"value": {"absolute_tolerance": 0.1}}),
+            settings=ComparisonSettings(column_rules={"value": {"relative_tolerance": 0.1}}),
         )
 
 

@@ -62,6 +62,23 @@ class ComparisonBackend(Protocol):
     ) -> PairResult: ...
 
 
+class ColumnComparator(Protocol):
+    """Decide value equality for one compared column, without owning orchestration.
+
+    ``problems`` returns human-readable reasons a type/rule combination is unsupported;
+    a nonempty list blocks the whole pair. ``equal`` returns a backend expression that is
+    true only for equal values and never null. ``policy`` is recorded in the result.
+    """
+
+    api_version: int
+
+    def problems(self, data_type, rule) -> list[str]: ...
+
+    def equal(self, left, right, data_type, rule, null_safe: bool): ...
+
+    def policy(self, data_type, rule) -> dict: ...
+
+
 class ConfigStore(Protocol):
     api_version: int
 

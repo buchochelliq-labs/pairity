@@ -80,6 +80,8 @@ class ColumnRule(Model):
     compare_as: CompareType | None = None
     implicit_casts: bool | None = None
     null_safe: bool | None = None
+    comparator: Name | None = None
+    array_order: Literal["ordered", "unordered"] | None = None
 
     @field_validator("compare_as")
     @classmethod

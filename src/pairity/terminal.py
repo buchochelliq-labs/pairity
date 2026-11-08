@@ -38,6 +38,12 @@ def _normalization_details(pair):
             f"{cast['compare_as']} (invalid rows: baseline={cast['invalid_baseline_rows']}, "
             f"candidate={cast['invalid_candidate_rows']})"
         )
+    for item in pair.get("comparators", []):
+        policy = ", ".join(f"{k}={v}" for k, v in sorted(item.get("policy", {}).items()))
+        lines.append(
+            f"{item['column']} -> {item['candidate']}: {item['comparator']} comparator"
+            + (f" ({policy})" if policy else "")
+        )
     for side, names in pair.get("ignored_columns", {}).items():
         if names:
             lines.append(f"Ignored {side} columns: {', '.join(names)}")

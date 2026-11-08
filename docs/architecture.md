@@ -27,7 +27,7 @@ flowchart TD
 
 ## Plugins
 
-`contracts.py` defines contract version 1 for metadata, table readers, comparison backends, configuration stores, result sinks, execution backends and pair runners. Configuration imports do not import PySpark or authenticate against a workspace. Platform dependencies live in adapter modules.
+`contracts.py` defines contract version 1 for metadata, table readers, comparison backends, column comparators, configuration stores, result sinks, execution backends and pair runners. Configuration imports do not import PySpark or authenticate against a workspace. Platform dependencies live in adapter modules.
 
 Adapters declare `api_version = 1`. Supply them through constructor injection or trusted factory registries. Registry names are opaque names, not Python import paths. Unknown names, duplicate registrations and incompatible versions fail. Entry-point auto-discovery and loading code from configuration are deliberately absent.
 
@@ -68,8 +68,8 @@ See Spark's [concurrent job scheduling documentation](https://spark.apache.org/d
 ## Scope and next adapters
 
 - Configuration: revisioned local files and shared Postgres/Lakebase application state.
-- Comparisons: scalar exact equality and float/double tolerances now. Structs, arrays and maps block explicitly until comparator plugins implement their policies.
-- Decimal/integer comparisons preserve exact values. Nonzero tolerances for these types block until precision-safe policies are implemented.
+- Comparisons: a column comparator registry selects exact scalar equality, float/double tolerances, exact decimal/integral absolute tolerances or nested struct/array/map policies, and accepts trusted custom comparators. See [complex types and comparators](sources-and-comparison.md#complex-types-and-comparators).
+- Decimal/integer comparisons preserve exact values. Relative tolerances and tolerances on `decimal(38,s)` block rather than round.
 - Results: Delta run envelopes and optional distributed differences, JSON export, SQL history reads and incident archives. Bounded historical sample retrieval remains future work.
 - Execution: bounded parallelism and failure isolation now; explicit cancellation, retry policies and remote backends remain tracked in #7.
 - CLI: rs-rich for reports and intuiTUIve for saved-report exploration. Both use the published `rs-rich` Python package backed by native Rust; Python Rich/Textual are not used.
