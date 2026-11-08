@@ -286,6 +286,7 @@
                 "mapping": {
                   "deduplicate": "#/$defs/DeduplicateSource",
                   "parameter": "#/$defs/ParameterSource",
+                  "sql": "#/$defs/SqlSource",
                   "table": "#/$defs/TableSource",
                   "template": "#/$defs/TemplateSource",
                   "union": "#/$defs/UnionSource"
@@ -307,6 +308,9 @@
                 },
                 {
                   "$ref": "#/$defs/ParameterSource"
+                },
+                {
+                  "$ref": "#/$defs/SqlSource"
                 }
               ]
             }
@@ -355,6 +359,7 @@
                 "mapping": {
                   "deduplicate": "#/$defs/DeduplicateSource",
                   "parameter": "#/$defs/ParameterSource",
+                  "sql": "#/$defs/SqlSource",
                   "table": "#/$defs/TableSource",
                   "template": "#/$defs/TemplateSource",
                   "union": "#/$defs/UnionSource"
@@ -376,6 +381,9 @@
                 },
                 {
                   "$ref": "#/$defs/ParameterSource"
+                },
+                {
+                  "$ref": "#/$defs/SqlSource"
                 }
               ]
             }
@@ -393,6 +401,7 @@
                 "mapping": {
                   "deduplicate": "#/$defs/DeduplicateSource",
                   "parameter": "#/$defs/ParameterSource",
+                  "sql": "#/$defs/SqlSource",
                   "table": "#/$defs/TableSource",
                   "template": "#/$defs/TemplateSource",
                   "union": "#/$defs/UnionSource"
@@ -414,6 +423,9 @@
                 },
                 {
                   "$ref": "#/$defs/ParameterSource"
+                },
+                {
+                  "$ref": "#/$defs/SqlSource"
                 }
               ]
             }
@@ -529,6 +541,14 @@
           "title": "Parameters",
           "type": "array"
         },
+        "values": {
+          "items": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+            "type": "string"
+          },
+          "title": "Values",
+          "type": "array"
+        },
         "source": {
           "anyOf": [
             {
@@ -540,6 +560,7 @@
                 "mapping": {
                   "deduplicate": "#/$defs/DeduplicateSource",
                   "parameter": "#/$defs/ParameterSource",
+                  "sql": "#/$defs/SqlSource",
                   "table": "#/$defs/TableSource",
                   "template": "#/$defs/TemplateSource",
                   "union": "#/$defs/UnionSource"
@@ -561,6 +582,9 @@
                 },
                 {
                   "$ref": "#/$defs/ParameterSource"
+                },
+                {
+                  "$ref": "#/$defs/SqlSource"
                 }
               ]
             }
@@ -572,6 +596,103 @@
         "source"
       ],
       "title": "SourceTemplate",
+      "type": "object"
+    },
+    "SqlSource": {
+      "additionalProperties": false,
+      "description": "A read-only query over declared inputs; see pairity.sql_guard for the subset.",
+      "properties": {
+        "kind": {
+          "const": "sql",
+          "title": "Kind",
+          "type": "string"
+        },
+        "query": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "inputs": {
+          "minProperties": 1,
+          "patternProperties": {
+            "^[A-Za-z_][A-Za-z0-9_]{0,63}$": {
+              "anyOf": [
+                {
+                  "pattern": "^[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*\\.[A-Za-z_][\\w-]*$",
+                  "type": "string"
+                },
+                {
+                  "discriminator": {
+                    "mapping": {
+                      "deduplicate": "#/$defs/DeduplicateSource",
+                      "parameter": "#/$defs/ParameterSource",
+                      "sql": "#/$defs/SqlSource",
+                      "table": "#/$defs/TableSource",
+                      "template": "#/$defs/TemplateSource",
+                      "union": "#/$defs/UnionSource"
+                    },
+                    "propertyName": "kind"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/TableSource"
+                    },
+                    {
+                      "$ref": "#/$defs/UnionSource"
+                    },
+                    {
+                      "$ref": "#/$defs/DeduplicateSource"
+                    },
+                    {
+                      "$ref": "#/$defs/TemplateSource"
+                    },
+                    {
+                      "$ref": "#/$defs/ParameterSource"
+                    },
+                    {
+                      "$ref": "#/$defs/SqlSource"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "title": "Inputs",
+          "type": "object"
+        },
+        "parameters": {
+          "patternProperties": {
+            "^[A-Za-z_][A-Za-z0-9_]{0,63}$": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/$defs/ValueRef"
+                }
+              ]
+            }
+          },
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "query",
+        "inputs"
+      ],
+      "title": "SqlSource",
       "type": "object"
     },
     "TableSource": {
@@ -635,6 +756,7 @@
                     "mapping": {
                       "deduplicate": "#/$defs/DeduplicateSource",
                       "parameter": "#/$defs/ParameterSource",
+                      "sql": "#/$defs/SqlSource",
                       "table": "#/$defs/TableSource",
                       "template": "#/$defs/TemplateSource",
                       "union": "#/$defs/UnionSource"
@@ -656,6 +778,9 @@
                     },
                     {
                       "$ref": "#/$defs/ParameterSource"
+                    },
+                    {
+                      "$ref": "#/$defs/SqlSource"
                     }
                   ]
                 }
@@ -666,6 +791,29 @@
             "minLength": 1
           },
           "title": "Inputs",
+          "type": "object"
+        },
+        "values": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/ValueRef"
+              }
+            ]
+          },
+          "title": "Values",
           "type": "object"
         }
       },
@@ -696,6 +844,7 @@
                   "mapping": {
                     "deduplicate": "#/$defs/DeduplicateSource",
                     "parameter": "#/$defs/ParameterSource",
+                    "sql": "#/$defs/SqlSource",
                     "table": "#/$defs/TableSource",
                     "template": "#/$defs/TemplateSource",
                     "union": "#/$defs/UnionSource"
@@ -717,6 +866,9 @@
                   },
                   {
                     "$ref": "#/$defs/ParameterSource"
+                  },
+                  {
+                    "$ref": "#/$defs/SqlSource"
                   }
                 ]
               }
@@ -732,6 +884,28 @@
         "sources"
       ],
       "title": "UnionSource",
+      "type": "object"
+    },
+    "ValueRef": {
+      "additionalProperties": false,
+      "description": "A template value parameter; bound by the referencing template source.",
+      "properties": {
+        "kind": {
+          "const": "value",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "ValueRef",
       "type": "object"
     }
   },

@@ -155,28 +155,17 @@ class SqlResultReader:
 
 
 def source_tables(config):
-    from pairity.config import DeduplicateSource, TableSource, UnionSource
-    from pairity.sources import expand_source
+    from pairity.sources import expand_source, leaf_tables
 
+    # SQL sources can only read their declared inputs (pairity.sql_guard), so authorizing
+    # every leaf table authorizes everything a suite can read.
     tables = set()
-
-    def visit(source):
-        if isinstance(source, str):
-            tables.add(source)
-        elif isinstance(source, TableSource):
-            tables.add(source.table)
-        elif isinstance(source, UnionSource):
-            for child in source.sources:
-                visit(child)
-        elif isinstance(source, DeduplicateSource):
-            visit(source.source)
-        else:
-            raise ValueError("Unsupported source authorization")
-
     for pair in config.pairs:
         if pair.enabled:
-            visit(expand_source(pair.baseline, config.templates))
-            visit(expand_source(pair.candidate, config.templates))
+            for side in (pair.baseline, pair.candidate):
+                tables.update(
+                    leaf.table for leaf in leaf_tables(expand_source(side, config.templates))
+                )
     return sorted(tables)
 
 

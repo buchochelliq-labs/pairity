@@ -17,6 +17,7 @@ class TableInput:
     version: int | None = None
     snapshot_pinned: bool = False
     leaves: list[dict] = field(default_factory=list)
+    details: dict = field(default_factory=dict)
 
     def metadata(self) -> dict:
         return {
@@ -24,6 +25,7 @@ class TableInput:
             "version": self.version,
             "snapshot_pinned": self.snapshot_pinned,
             **({"leaves": self.leaves} if self.leaves else {}),
+            **self.details,
         }
 
 

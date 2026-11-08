@@ -2,15 +2,9 @@
 
 from datetime import datetime, timezone
 
-from pairity.config import (
-    DeduplicateSource,
-    SuiteConfig,
-    TableSource,
-    UnionSource,
-    resolve_settings,
-)
+from pairity.config import SuiteConfig, TableSource, resolve_settings
 from pairity.results import PairResult, RunResult, validate_pair_result
-from pairity.sources import expand_source
+from pairity.sources import child_sources, expand_source, replace_children
 
 
 def prepare_config(config, latest_version):
@@ -24,11 +18,8 @@ def prepare_config(config, latest_version):
                 if source.table not in versions:
                     versions[source.table] = latest_version(source.table)
                 source.version = versions[source.table]
-        elif isinstance(source, UnionSource):
-            source.sources = [pin(child) for child in source.sources]
-        elif isinstance(source, DeduplicateSource):
-            source.source = pin(source.source)
-        return source
+            return source
+        return replace_children(source, [pin(child) for child in child_sources(source)])
 
     for pair in frozen.pairs:
         if not pair.enabled:

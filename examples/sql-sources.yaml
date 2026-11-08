@@ -1,0 +1,46 @@
+schema_version: 1
+suite: sql-sources
+templates:
+  orders_since:
+    parameters: [orders, customers]
+    values: [start]
+    source:
+      kind: sql
+      query: |
+        SELECT o.order_id, c.region, o.amount
+        FROM {{orders}} o
+        JOIN {{customers}} c ON o.customer_id = c.customer_id
+        WHERE o.order_date >= :start
+      inputs:
+        orders: {kind: parameter, name: orders}
+        customers: {kind: parameter, name: customers}
+      parameters:
+        start: {kind: value, name: start}
+pairs:
+  - id: regional_orders
+    baseline:
+      kind: template
+      name: orders_since
+      inputs:
+        orders: prod.sales.orders
+        customers: {kind: table, table: prod.sales.customers, version: 42}
+      values:
+        start: '2026-01-01'
+    candidate:
+      kind: sql
+      query: |
+        WITH latest AS (
+          SELECT * FROM {{orders}} UNION SELECT * FROM {{backfill}}
+        )
+        SELECT o.order_id, c.region, o.amount
+        FROM latest o
+        JOIN {{customers}} c ON o.customer_id = c.customer_id
+        WHERE o.order_date >= :start
+      inputs:
+        orders: dev.sales.orders
+        backfill: dev.sales.orders_backfill
+        customers: dev.sales.customers
+      parameters:
+        start: '2026-01-01'
+    keys:
+      - {baseline: order_id, candidate: order_id}

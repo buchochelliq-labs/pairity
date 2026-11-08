@@ -36,6 +36,7 @@ class TemplateSource(Model):
     kind: Literal["template"]
     name: Name
     inputs: dict[Name, "SourceSpec"] = Field(default_factory=dict)
+    values: dict[str, "SqlScalar | ValueRef"] = Field(default_factory=dict)
 
 
 class ParameterSource(Model):
@@ -43,23 +44,64 @@ class ParameterSource(Model):
     name: Name
 
 
+SqlIdentifier = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")]
+SqlScalar = str | bool | int | Annotated[float, Field(allow_inf_nan=False)]
+
+
+class ValueRef(Model):
+    """A template value parameter; bound by the referencing template source."""
+
+    kind: Literal["value"]
+    name: SqlIdentifier
+
+
+class SqlSource(Model):
+    """A read-only query over declared inputs; see pairity.sql_guard for the subset."""
+
+    kind: Literal["sql"]
+    query: Annotated[str, Field(min_length=1, max_length=20_000)]
+    inputs: dict[SqlIdentifier, "SourceSpec"] = Field(min_length=1)
+    parameters: dict[SqlIdentifier, SqlScalar | ValueRef] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def query_is_read_only_and_bound(self):
+        from pairity.sql_guard import check_parameter_name, check_query
+
+        checked = check_query(self.query)
+        if set(checked.inputs) != set(self.inputs):
+            raise ValueError(
+                f"SQL placeholders {sorted(checked.inputs)} must match inputs {sorted(self.inputs)}"
+            )
+        if set(checked.parameters) != set(self.parameters):
+            raise ValueError(
+                f"SQL parameter markers {sorted(checked.parameters)} must match "
+                f"parameters {sorted(self.parameters)}"
+            )
+        for name in self.parameters:
+            check_parameter_name(name)
+        return self
+
+
 Source = Annotated[
-    TableSource | UnionSource | DeduplicateSource | TemplateSource | ParameterSource,
+    TableSource | UnionSource | DeduplicateSource | TemplateSource | ParameterSource | SqlSource,
     Field(discriminator="kind"),
 ]
 SourceSpec = TableName | Source
-for _model in (UnionSource, DeduplicateSource, TemplateSource):
+for _model in (UnionSource, DeduplicateSource, TemplateSource, SqlSource):
     _model.model_rebuild()
 
 
 class SourceTemplate(Model):
     parameters: list[Name] = Field(default_factory=list)
+    values: list[SqlIdentifier] = Field(default_factory=list)
     source: SourceSpec
 
     @model_validator(mode="after")
     def unique_parameters(self):
         if len(self.parameters) != len(set(self.parameters)):
             raise ValueError("Template parameters must be unique")
+        if len(self.values) != len(set(self.values)):
+            raise ValueError("Template values must be unique")
         return self
 
 
@@ -194,6 +236,7 @@ class SuiteConfig(Model):
                     kind="template",
                     name=name,
                     inputs={p: "pairity.validation.placeholder" for p in template.parameters},
+                    values={v: "placeholder" for v in template.values},
                 ),
                 self.templates,
             )
