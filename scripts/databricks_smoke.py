@@ -224,7 +224,9 @@ def main():
     try:
         run(client, int(jobs["smoke_setup"]["id"]), {"test_id": args.test_id}, "SUCCESS", records)
         ids = {}
-        for variant in ("identical", "regression"):
+        # The features suite exercises scoping, SQL sources and nested/decimal comparators;
+        # like the regression suite it contains a real difference, so the Job must fail.
+        for variant in ("identical", "regression", "features"):
             ids[variant] = run(
                 client,
                 int(jobs["regression"]["id"]),
@@ -232,7 +234,8 @@ def main():
                 "SUCCESS" if variant == "identical" else "FAILED",
                 records,
             )
-        timings = [overlap(client, run_id) for run_id in ids.values()]
+        # Overlap is asserted for the four-pair suites; two pairs cannot prove it reliably.
+        timings = [overlap(client, ids[variant]) for variant in ("identical", "regression")]
         (output / "parallel-task-timing.json").write_text(json.dumps(timings, indent=2))
         run(
             client,

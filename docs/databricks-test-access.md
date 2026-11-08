@@ -77,9 +77,18 @@ only main deployments; the workflow does not inspect or print secret values.
 
 The workflow checks the required environment secrets, builds the checked-out wheel,
 deploys the `free_test` bundle target, then runs fixture setup, the identical
-suite, the changed suite and a Delta-result verifier. Expected regression Job
-failure alone is insufficient: all counts, statuses and source snapshot identities
-must match, and the Jobs timeline must show peak pair-task overlap of two.
+suite, the changed suite, the features suite and a Delta-result verifier. Expected
+regression Job failure alone is insufficient: all counts, statuses and source
+snapshot identities must match, and the Jobs timeline must show peak pair-task
+overlap of two for the four-pair suites.
+
+The features suite (`examples/tuva/tuva-features.*`, expectations in
+`expected-features.json`) qualifies on serverless:
+- `as_of` snapshot selection, with the instant captured after setup creates the tables, so it must resolve to version 0;
+- typed `where` filters and exact decimal tolerances;
+- a SQL source with a bound parameter that builds struct, map and array columns, compared with the nested comparator and `array_order: unordered`.
+
+The verifier checks the recorded comparator per column, `as_of` and filters on scoped inputs, and each SQL source's leaf snapshot, query hash and bound parameters.
 Reports and Job links are uploaded as a 14-day Actions artifact.
 
 Each invocation uses `gha_<run_id>_<attempt>` table prefixes and a separate Volume
@@ -87,7 +96,7 @@ subdirectory. Synthetic tables, configs and results are retained for investigati
 cleanup is deliberately not automatic. Remove only that run's fixture tables and
 Volume subdirectory when finished; the shared result table is not a cleanup target.
 The workflow does not create schemas, Volumes or grants. Full failure/permission
-qualification in #9 extends beyond these initial two-suite smoke tests.
+qualification in #9 extends beyond these smoke tests.
 
  Use concurrency 2. No SQL warehouse ID is required:
 these are serverless notebook/Job tasks. Postgres/Lakebase access is not needed for

@@ -128,10 +128,81 @@ def fixture_reports():
                 "status": "passed" if variant == "identical" else "failed",
             }
         }
+    reports["job:3"] = {"report": features_fixture_report()}
     return reports
 
 
-@pytest.mark.parametrize("corruption", [None, "table", "version", "counts"])
+def features_fixture_report():
+    """A features report shaped like the engine's output for the prepared suite."""
+    import importlib.util
+    import json
+
+    from pairity.serverless import prepare_config
+    from pairity.sql_guard import query_hash
+
+    spec = importlib.util.spec_from_file_location("tuva_load", ROOT / "examples/tuva/load.py")
+    load = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(load)
+    targets = {
+        (v, "core__medical_claim"): f"workspace.pairity_test.gha_1_1_{v}_core__medical_claim"
+        for v in ("baseline", "changed")
+    }
+    document = json.loads((ROOT / "examples/tuva/tuva-features.json").read_text())
+    config = load.features_config(document, targets, "2026-01-01T00:00:00Z")
+    config = prepare_config(config, lambda table: 0, lambda table, as_of: 0)
+    expected = json.loads((ROOT / "examples/tuva/expected-features.json").read_text())
+    pairs = []
+    for pair in config.pairs:
+        wanted = expected[pair.id]
+        inputs = {}
+        for side in ("baseline", "candidate"):
+            source = getattr(pair, side)
+            if source.kind == "table":
+                inputs[side] = {
+                    "table": source.table,
+                    "version": 0,
+                    "snapshot_pinned": True,
+                    "as_of": source.as_of,
+                    "filters": [f.model_dump(exclude_none=True) for f in source.where],
+                }
+            else:
+                leaf = source.inputs["claims"]
+                inputs[side] = {
+                    "table": "sql",
+                    "version": None,
+                    "snapshot_pinned": True,
+                    "leaves": [{"table": leaf.table, "version": 0, "snapshot_pinned": True}],
+                    "queries": [
+                        {"query_sha256": query_hash(source.query), "parameters": {"min_line": 1}}
+                    ],
+                }
+        pairs.append(
+            {
+                "pair_id": pair.id,
+                "status": wanted["status"],
+                "counts": wanted["counts"],
+                "column_changes": wanted.get("column_changes", {}),
+                "comparators": [
+                    {"column": column, "comparator": name}
+                    for column, name in wanted["comparators"].items()
+                ],
+                "inputs": inputs,
+            }
+        )
+    return {
+        "run_id": "job:3",
+        "configuration": config.model_dump(exclude_none=True),
+        "config_hash": config.fingerprint,
+        "suite": config.suite,
+        "pairs": pairs,
+        "status": "failed",
+    }
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [None, "table", "version", "counts", "feature_comparator", "feature_query", "feature_as_of"],
+)
 def test_verifier_checks_evidence_and_actual_input_identity(monkeypatch, corruption):
     verifier = module("notebooks/smoke_verify.py")
     reports = fixture_reports()
@@ -142,6 +213,13 @@ def test_verifier_checks_evidence_and_actual_input_identity(monkeypatch, corrupt
         pair["inputs"]["baseline"]["version"] = 99
     elif corruption == "counts":
         pair["counts"]["missing_rows"] = 0
+    features = reports["job:3"]["report"]["pairs"]
+    if corruption == "feature_comparator":
+        features[1]["comparators"][2]["comparator"] = "exact"
+    elif corruption == "feature_query":
+        features[1]["inputs"]["candidate"]["queries"][0]["query_sha256"] = "0" * 64
+    elif corruption == "feature_as_of":
+        features[0]["inputs"]["baseline"]["as_of"] = "2026-02-01T00:00:00Z"
 
     class Store:
         def load(self, run_id):
@@ -165,6 +243,7 @@ def test_verifier_checks_evidence_and_actual_input_identity(monkeypatch, corrupt
         "artifact_root": "/Volumes/workspace/pairity_test/artifacts",
         "identical_run_id": "1",
         "regression_run_id": "2",
+        "features_run_id": "3",
     }
     dbutils = SimpleNamespace(widgets=SimpleNamespace(get=values.__getitem__))
     if corruption:

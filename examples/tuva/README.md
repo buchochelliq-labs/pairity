@@ -90,6 +90,10 @@ permissions or deletes data.
 Submit `tuva-identical.yaml` for four passing self-comparisons, then
 `tuva-regression.yaml` for three failures and one pass. A failed regression Job is
 expected, but the test harness must also verify all four saved pair outcomes and
-the exact counts above. Both JSON and YAML configurations are included. The
+the exact counts above. `tuva-features.yaml` compares the medical-claim fixture with
+`as_of`/`where` scoping and decimal tolerances (expected to pass), and through SQL
+sources that build nested columns in different orders (expected: only the real
+amount change, one missing and one extra claim). See `expected-features.json`. The
+loader's `pin_as_of=True` sets `as_of` to the instant after it creates the tables. Both JSON and YAML configurations are included. The
 loader returns configs with the actual chosen catalog/schema, rather than the
 example defaults.

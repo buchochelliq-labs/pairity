@@ -42,6 +42,8 @@ targets:
               default: unset
             - name: regression_run_id
               default: unset
+            - name: features_run_id
+              default: unset
           environments:
             - environment_key: pairity
               spec:

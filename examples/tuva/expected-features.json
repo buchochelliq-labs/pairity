@@ -1,0 +1,38 @@
+{
+  "scoped_medical_claim": {
+    "status": "passed",
+    "counts": {
+      "baseline_rows": 99,
+      "candidate_rows": 99,
+      "matched_rows": 99,
+      "changed_rows": 0,
+      "missing_rows": 0,
+      "extra_rows": 0
+    },
+    "comparators": {
+      "paid_amount": "decimal_tolerance",
+      "allowed_amount": "decimal_tolerance"
+    }
+  },
+  "sql_nested_medical_claim": {
+    "status": "failed",
+    "counts": {
+      "baseline_rows": 100,
+      "candidate_rows": 100,
+      "matched_rows": 99,
+      "changed_rows": 1,
+      "missing_rows": 1,
+      "extra_rows": 1
+    },
+    "column_changes": {
+      "amounts": 1,
+      "labels": 0,
+      "tags": 0
+    },
+    "comparators": {
+      "amounts": "nested",
+      "labels": "nested",
+      "tags": "nested"
+    }
+  }
+}

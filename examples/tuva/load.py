@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -39,8 +39,34 @@ def frames(spark, root=ROOT):
     return result
 
 
-def load_fixture(spark, catalog, schema, *, root=ROOT, table_prefix="tuva"):
-    """Requires an existing sandbox schema. Never overwrite existing tables."""
+PLACEHOLDER = "workspace.pairity_test.tuva_"
+
+
+def features_config(document, targets, as_of=None):
+    """Point the features suite at loaded tables; pin scoped table sources to ``as_of``."""
+
+    def visit(node):
+        if isinstance(node, str) and node.startswith(PLACEHOLDER):
+            variant, table = node[len(PLACEHOLDER) :].split("_", 1)
+            return targets[(variant, table)]
+        if isinstance(node, list):
+            return [visit(item) for item in node]
+        if isinstance(node, dict):
+            result = {key: visit(value) for key, value in node.items()}
+            if result.get("kind") == "table" and as_of is not None:
+                result["as_of"] = as_of
+            return result
+        return node
+
+    return SuiteConfig.model_validate(visit(document))
+
+
+def load_fixture(spark, catalog, schema, *, root=ROOT, table_prefix="tuva", pin_as_of=False):
+    """Requires an existing sandbox schema. Never overwrite existing tables.
+
+    With ``pin_as_of``, the features suite's table sources select their snapshot by the
+    instant captured after every table was created, so it resolves to version 0.
+    """
     root = Path(root)
     data = frames(spark, root)
     targets = {key: f"{catalog}.{schema}.{table_prefix}_{key[0]}_{key[1]}" for key in data}
@@ -62,4 +88,7 @@ def load_fixture(spark, catalog, schema, *, root=ROOT, table_prefix="tuva"):
                 ("baseline" if name == "tuva-identical" else "changed", table)
             ]
         configs[name] = SuiteConfig.model_validate(document)
+    features = json.loads((root / "tuva-features.json").read_text())
+    as_of = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z") if pin_as_of else None
+    configs["tuva-features"] = features_config(features, targets, as_of)
     return configs
