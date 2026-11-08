@@ -39,7 +39,7 @@ Float/double values pass when they are exactly null-safe equal, or both finite a
 
 `abs(baseline - candidate) <= max(absolute_tolerance, relative_tolerance * max(abs(baseline), abs(candidate)))`
 
-NaN equals NaN; equal infinities compare equal; finite and infinite values differ. Null equals null and differs from non-null. Nonzero tolerances on other types currently block rather than cast away precision. If no value columns remain, explicitly enable `allow_key_only` to compare key membership alone.
+NaN equals NaN; equal infinities compare equal; finite and infinite values differ. Null equals null and differs from non-null. Integral and decimal columns accept `absolute_tolerance` with exact decimal arithmetic; see [complex types and comparators](sources-and-comparison.md#complex-types-and-comparators). Tolerances on other types block rather than cast away precision. If no value columns remain, explicitly enable `allow_key_only` to compare key membership alone.
 
 ## JSON/YAML interchange
 

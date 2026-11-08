@@ -72,6 +72,8 @@ def test_rejects_ambiguous_or_unsafe_documents(format, text):
         {"defaults": {"max_changed_rows": -1}},
         {"defaults": {"column_rules": {"price": {"absolute_tolerance": -0.1}}}},
         {"defaults": {"column_rules": {"price": {"absolute_tolerance": float("inf")}}}},
+        {"defaults": {"column_rules": {"items": {"array_order": "sorted"}}}},
+        {"defaults": {"column_rules": {"items": {"comparator": ""}}}},
     ],
 )
 def test_rejects_invalid_config(change):
@@ -135,3 +137,14 @@ def test_yaml_roundtrip_preserves_numeric_looking_strings_everywhere(name):
     )
     config = SuiteConfig.model_validate(data)
     assert load_config(dump_config(config, "yaml"), "yaml") == config
+
+
+def test_comparator_policies_inherit_by_field_and_roundtrip_formats():
+    data = suite_data()
+    data["defaults"] = {"column_rules": {"items": {"array_order": "unordered"}}}
+    data["pairs"][0]["compare"] = {"column_rules": {"items": {"comparator": "company_items"}}}
+    config = SuiteConfig.model_validate(data)
+    rule = resolve_settings(config, config.pairs[0]).column_rules["items"]
+    assert (rule.array_order, rule.comparator) == ("unordered", "company_items")
+    for format in ("json", "yaml"):
+        assert load_config(dump_config(config, format), format) == config

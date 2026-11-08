@@ -27,6 +27,9 @@ class PluginRegistry(Generic[T]):
             raise ValueError(f"Plugin already registered: {name}")
         self._factories[name] = factory
 
+    def __contains__(self, name: object) -> bool:
+        return name in self._factories
+
     def create(self, name: str) -> T:
         if name not in self._factories:
             raise ValueError(f"Unknown plugin: {name}")

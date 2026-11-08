@@ -69,3 +69,21 @@ def test_report_displays_implicit_cast_decisions_and_ignored_columns():
     output = stream.getvalue()
     assert "implicit" in output and "decimal(38,0)" in output
     assert "loaded_at" in output
+
+
+def test_report_displays_recorded_comparator_policies():
+    data = report()
+    data["pairs"][0]["comparators"] = [
+        {
+            "column": "items",
+            "candidate": "line_items",
+            "type": "array<bigint>",
+            "comparator": "nested",
+            "policy": {"array_order": "unordered", "struct_fields": "by_name"},
+        }
+    ]
+    stream = StringIO()
+    render_report(data, Console(file=stream, width=160, color_system=None))
+    output = stream.getvalue()
+    assert "items -> line_items: nested comparator" in output
+    assert "array_order=unordered" in output

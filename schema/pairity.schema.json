@@ -63,6 +63,36 @@
           "default": null,
           "title": "Null Safe"
         },
+        "comparator": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1f]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comparator"
+        },
+        "array_order": {
+          "anyOf": [
+            {
+              "enum": [
+                "ordered",
+                "unordered"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Array Order"
+        },
         "absolute_tolerance": {
           "anyOf": [
             {

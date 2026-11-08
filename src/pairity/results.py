@@ -40,6 +40,7 @@ class PairResult:
     effective_settings: dict = field(default_factory=dict)
     casts: list[dict] = field(default_factory=list)
     ignored_columns: dict[str, list[str]] = field(default_factory=dict)
+    comparators: list[dict] = field(default_factory=list)
     differences: Any = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict:
@@ -58,6 +59,7 @@ class PairResult:
                 "effective_settings",
                 "casts",
                 "ignored_columns",
+                "comparators",
             )
         }
 
