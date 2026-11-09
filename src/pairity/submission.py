@@ -95,8 +95,8 @@ class DatabricksJobSubmitter:
         )
         response = _step(
             f"Starting Job {self.job_id} failed. The submitting identity needs CAN_MANAGE_RUN "
-            "on the Job. No run was confirmed; retrying is safe because the request reuses "
-            "its idempotency token.",
+            "on the Job. No run was confirmed, but one may still have started if only the "
+            "response was lost: check Databricks Jobs before submitting again.",
             lambda: self.client.jobs.run_now(
                 job_id=self.job_id,
                 idempotency_token=request_id,
