@@ -28,6 +28,7 @@ def test_preflight_lists_missing_names_without_secret_values():
         "PAIRITY_SCHEMA": "pairity_test",
         "PAIRITY_ARTIFACT_ROOT": "/Volumes/workspace/pairity_test/artifacts",
         "PAIRITY_RESULT_TABLE": "workspace.pairity_test.results",
+        "PAIRITY_JOB_MANAGER": "operator@example.com",
     }
     validate(env)
     with pytest.raises(ValueError, match="HTTPS"):
@@ -265,6 +266,7 @@ def test_service_principal_auth_needs_no_pat_and_reports_missing_secret():
         "PAIRITY_SCHEMA": "pairity_test",
         "PAIRITY_ARTIFACT_ROOT": "/Volumes/workspace/pairity_test/artifacts",
         "PAIRITY_RESULT_TABLE": "workspace.pairity_test.results",
+        "PAIRITY_JOB_MANAGER": "operator@example.com",
     }
     validate(env)
     validate(env | {"DATABRICKS_AUTH_TYPE": "oauth-m2m"})
@@ -636,3 +638,55 @@ def test_timeout_keeps_diagnostics_and_cancels_run():
         script.run(client, 1, {}, "SUCCESS", records)
     assert cancelled == [42]
     assert records[0]["url"] == "https://example/run/42"
+
+
+def test_preflight_requires_a_job_manager_user():
+    validate = module("scripts/databricks_preflight.py").validate
+    env = {
+        "DATABRICKS_HOST": "https://example.databricks.com",
+        "DATABRICKS_CLIENT_ID": "test-client",
+        "DATABRICKS_CLIENT_SECRET": "private-value",
+        "PAIRITY_CATALOG": "workspace",
+        "PAIRITY_SCHEMA": "pairity_test",
+        "PAIRITY_ARTIFACT_ROOT": "/Volumes/workspace/pairity_test/artifacts",
+        "PAIRITY_RESULT_TABLE": "workspace.pairity_test.results",
+    }
+    with pytest.raises(ValueError, match="PAIRITY_JOB_MANAGER"):
+        validate(env)
+    with pytest.raises(ValueError, match="Databricks user name"):
+        validate(env | {"PAIRITY_JOB_MANAGER": "not an email"})
+    validate(env | {"PAIRITY_JOB_MANAGER": "operator@example.com"})
+
+
+def test_deploy_adds_manage_grants_without_replacing_existing_ones():
+    from types import SimpleNamespace
+
+    grant_module = module("scripts/grant_job_managers.py")
+    summary = {"resources": {"jobs": {"regression": {"id": "11"}, "setup": {"id": "7"}}}}
+    calls = []
+    client = SimpleNamespace(
+        jobs=SimpleNamespace(update_permissions=lambda **kwargs: calls.append(kwargs))
+    )
+    ids = grant_module.grant(client, grant_module.job_ids(summary), "operator@example.com")
+    assert ids == [7, 11]
+    assert [c["job_id"] for c in calls] == ["7", "11"]
+    entries = [
+        (e.group_name, e.user_name, e.permission_level.value)
+        for e in calls[0]["access_control_list"]
+    ]
+    assert entries == [
+        ("admins", None, "CAN_MANAGE"),
+        (None, "operator@example.com", "CAN_MANAGE"),
+    ]
+    with pytest.raises(ValueError, match="no deployed Jobs"):
+        grant_module.job_ids({"resources": {"jobs": {}}})
+    with pytest.raises(ValueError, match="email"):
+        grant_module.grant(client, [1], "not-an-email")
+    workflow = (ROOT / ".github/workflows/databricks-free.yml").read_text()
+    assert "PAIRITY_JOB_MANAGER: ${{ vars.PAIRITY_JOB_MANAGER }}" in workflow
+    assert (
+        'scripts/grant_job_managers.py \\\n            --summary "$RUNNER_TEMP/pairity-bundle.json"'
+        in workflow
+    )
+    # Bundle-level permissions would replace the Job ACL and drop the App's grant.
+    assert "permissions" not in (ROOT / "databricks.yml").read_text()

@@ -70,6 +70,23 @@ PAIRITY_ARTIFACT_ROOT=/Volumes/workspace/pairity_test/artifacts
 PAIRITY_RESULT_TABLE=workspace.pairity_test.results
 ```
 
+GitHub environment **variable** (not a secret: it isn't sensitive):
+
+```text
+PAIRITY_JOB_MANAGER=you@yourdomain.com   # workbench user granted CAN_MANAGE on the Jobs
+```
+
+After every deploy, `scripts/grant_job_managers.py` adds `CAN_MANAGE` on each
+deployed Job for the `admins` group and for `PAIRITY_JOB_MANAGER`. The workbench
+checks the signed-in user's Job permission before it submits, monitors or cancels
+runs, so the person using the App needs this grant, directly or through a group.
+
+The grant uses the additive Jobs permissions API. Existing entries stay, including
+the App deployment's `CAN_MANAGE_RUN` for the App's service principal, and the
+deployer stays the owner. Don't move these grants into bundle-level `permissions`:
+those replace the Job's whole access list on each deploy and would drop the App's
+grant. Preflight fails if the variable is missing or isn't an email address.
+
 The configured GitHub environment is **`Databricks-free`**. Once the workflow is
 merged to main, open **Actions → Databricks Free Edition smoke tests → Run workflow**
 and choose main. It is manual and main-only. Protect this environment to allow
