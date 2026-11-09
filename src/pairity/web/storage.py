@@ -169,28 +169,30 @@ def source_tables(config):
     return sorted(tables)
 
 
-def source_access_message(table, error):
-    """Name the table and the exact grants a refused source check needs."""
+def source_access_message(table, error, user=None):
+    """Name the table, the identity checked and the exact grants a refused check needs."""
     catalog, schema, _ = table.split(".")
     text = str(error)
+    # Checks run with the signed-in user's own identity, never the App's service principal.
+    who = f"your Databricks user ({user})" if user else "your Databricks user"
     if "42501" in text or "PERMISSION" in text:
         return (
-            f"You cannot read source table {table}. Ask its owner to grant you "
-            f"USE CATALOG on {catalog}, USE SCHEMA on {catalog}.{schema} and SELECT on "
-            f"{table} (directly or through a group); the Job's run identity needs the same. "
+            f"You cannot read source table {table}. Ask its owner to grant {who}, directly "
+            f"or through a group, USE CATALOG on {catalog}, USE SCHEMA on {catalog}.{schema} "
+            f"and SELECT on {table}. The identity the Job runs as needs the same. "
             f"No Job was submitted. Details: {text}"
         )
     if "42P01" in text or "TABLE_OR_VIEW_NOT_FOUND" in text:
         # Unity Catalog also reports a table the caller has no privileges on as not found.
         return (
-            f"Source table {table} was not found, or you have no privileges on it. Check the "
-            "name (for example with Catalog Explorer) and that you have USE CATALOG, USE "
-            f"SCHEMA and SELECT on it. No Job was submitted. Details: {text}"
+            f"Source table {table} was not found, or {who} has no privileges on it. Check "
+            "the name (for example with Catalog Explorer) and the USE CATALOG, USE SCHEMA "
+            f"and SELECT grants. No Job was submitted. Details: {text}"
         )
     return f"Source check for {table} failed; no Job was submitted. Details: {text}"
 
 
-def source_authorizer(query):
+def source_authorizer(query, user=None):
     authorized = set()  # Request-scoped: never cache across users or requests.
 
     def authorize(config):
@@ -199,7 +201,7 @@ def source_authorizer(query):
                 try:
                     query(f"SELECT * FROM {quote_table(table)} LIMIT 0", {})
                 except ValueError as exc:
-                    raise ValueError(source_access_message(table, exc)) from exc
+                    raise ValueError(source_access_message(table, exc, user)) from exc
                 authorized.add(table)
 
     return authorize

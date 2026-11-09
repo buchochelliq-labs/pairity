@@ -214,6 +214,19 @@ when available. Use that ID in SQL query history for the full error. App logs re
 those diagnostic fields without raw SQL, provider messages or data values. A failed
 cancellation is reported as unconfirmed, never as a successful cancellation.
 
+**Which identity needs source access.** Two identities read the source tables, and both need `USE CATALOG`, `USE SCHEMA` and `SELECT`, directly or through a group:
+
+1. **The signed-in workbench user.** Pre-submission checks, run history and incident downloads run as the person using the App: the App uses the access token Databricks forwards for that user, never the App's own service principal. A refused check names this user and the table.
+2. **The identity the Job runs as.** The bundle sets no `run_as`, so the Job runs as its owner, the identity that deployed it. For CI deployments this is the `DATABRICKS_CLIENT_ID` service principal in the `Databricks-free` environment.
+
+Tables created by the smoke workflow (`gha_*`) are owned by that service principal, so it can read them, but workbench users can't until they are granted access. For example, grant `SELECT` on the schema to give a user or group access to every fixture table:
+
+```sql
+GRANT USE CATALOG ON CATALOG <catalog> TO `user-or-group`;
+GRANT USE SCHEMA  ON SCHEMA  <catalog>.<schema> TO `user-or-group`;
+GRANT SELECT      ON SCHEMA  <catalog>.<schema> TO `user-or-group`;
+```
+
 ## Discover table pairs and primary keys
 
 The pair editor opens a dedicated Catalog Explorer with catalog/schema navigation,
