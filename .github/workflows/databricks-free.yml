@@ -52,6 +52,7 @@ jobs:
           PAIRITY_SCHEMA: ${{ secrets.PAIRITY_SCHEMA }}
           PAIRITY_ARTIFACT_ROOT: ${{ secrets.PAIRITY_ARTIFACT_ROOT }}
           PAIRITY_RESULT_TABLE: ${{ secrets.PAIRITY_RESULT_TABLE }}
+          PAIRITY_JOB_MANAGER: ${{ vars.PAIRITY_JOB_MANAGER }}
         run: |
           if [ -n "$PAIRITY_INSPECT_RUNS" ]; then
             python scripts/databricks_smoke.py --inspect-runs "$PAIRITY_INSPECT_RUNS"
@@ -68,6 +69,9 @@ jobs:
           databricks bundle validate --target free_test
           databricks bundle deploy --target free_test
           databricks bundle summary --target free_test --output json > "$RUNNER_TEMP/pairity-bundle.json"
+          # Additive: keeps the App's CAN_MANAGE_RUN and any other existing grants.
+          python scripts/grant_job_managers.py \
+            --summary "$RUNNER_TEMP/pairity-bundle.json" --manager "$PAIRITY_JOB_MANAGER"
           python scripts/databricks_smoke.py \
             --summary "$RUNNER_TEMP/pairity-bundle.json" \
             --test-id "gha_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}" \
