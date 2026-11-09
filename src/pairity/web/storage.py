@@ -180,6 +180,13 @@ def source_access_message(table, error):
             f"{table} (directly or through a group); the Job's run identity needs the same. "
             f"No Job was submitted. Details: {text}"
         )
+    if "42P01" in text or "TABLE_OR_VIEW_NOT_FOUND" in text:
+        # Unity Catalog also reports a table the caller has no privileges on as not found.
+        return (
+            f"Source table {table} was not found, or you have no privileges on it. Check the "
+            "name (for example with Catalog Explorer) and that you have USE CATALOG, USE "
+            f"SCHEMA and SELECT on it. No Job was submitted. Details: {text}"
+        )
     return f"Source check for {table} failed; no Job was submitted. Details: {text}"
 
 

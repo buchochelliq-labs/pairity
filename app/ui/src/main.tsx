@@ -19,6 +19,26 @@ const initial: Config = {
     },
   ],
 };
+// The starter suite's tables are placeholders; running them can only fail the source check.
+const EXAMPLE_TABLE = /^catalog\.(baseline|candidate)\.customers$/;
+function exampleTables(config: Config | null, pairIds: string[] = [], tags: string[] = []): string[] {
+  // Mirror the server's selection: pair IDs, else tags, else every pair.
+  const chosen = (pair: any) =>
+    pairIds.length ? pairIds.includes(pair.id)
+      : tags.length ? (pair.tags ?? []).some((tag: string) => tags.includes(tag))
+        : true;
+  const found = new Set<string>();
+  const visit = (source: any) => {
+    const table = typeof source === "string" ? source : source?.kind === "table" ? source.table : null;
+    if (table && EXAMPLE_TABLE.test(table)) found.add(table);
+  };
+  for (const pair of config?.pairs ?? []) {
+    if (pair.enabled === false || !chosen(pair)) continue;
+    visit(pair.baseline);
+    visit(pair.candidate);
+  }
+  return [...found];
+}
 function Badge({ value }: { value: string }) {
   return <span className={`badge ${value}`}>{value}</span>;
 }
@@ -214,6 +234,14 @@ export function App() {
       return;
     }
     if (busy || runStarting.current || !config || hasRevisionConflict) return;
+    const examples = exampleTables(config, selected, tagList());
+    if (examples.length) {
+      setRunError(
+        `replace the example tables ${examples.join(" and ")} with tables from your workspace ` +
+          "(for example with Catalog Explorer) before running. No Job was submitted.",
+      );
+      return;
+    }
     runStarting.current = true;
     setRunError("");
     await act(async () => {
