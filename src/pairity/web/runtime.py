@@ -57,9 +57,19 @@ class JobAuthorization:
         allowed = {"CAN_MANAGE_RUN", "CAN_MANAGE", "IS_OWNER"}
         if operation == "view":
             allowed.add("CAN_VIEW")
-        permissions = self.client.permissions.get(
-            request_object_type="jobs", request_object_id=str(self.job_id)
-        )
+        try:
+            permissions = self.client.permissions.get(
+                request_object_type="jobs", request_object_id=str(self.job_id)
+            )
+        except Exception as exc:
+            # Fail closed, but say which identity and permission the lookup needs.
+            raise ValueError(
+                f"Reading the permissions of Job {self.job_id} as the App's service principal "
+                "failed, so your access to it could not be checked and nothing was "
+                "submitted. Grant the App's service principal CAN_MANAGE on the Job so it "
+                f"can read the Job's access control list. Details: {type(exc).__name__}: "
+                f"{' '.join(str(exc).split())[:400]}"
+            ) from exc
         for entry in permissions.access_control_list or []:
             levels = {
                 p.permission_level.value

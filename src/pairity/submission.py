@@ -52,6 +52,24 @@ class DirectSubmitter:
         raise ValueError("Synchronous execution has already completed")
 
 
+class SubmissionStepFailed(ValueError):
+    """A named submission step failed; the message says whether a run may exist."""
+
+
+def _detail(exc):
+    text = " ".join(str(exc).split())
+    return f"{type(exc).__name__}: {text[:400]}" if text else type(exc).__name__
+
+
+def _step(message, call):
+    try:
+        return call()
+    except SubmissionStepFailed:
+        raise
+    except Exception as exc:
+        raise SubmissionStepFailed(f"{message} Details: {_detail(exc)}") from exc
+
+
 class DatabricksJobSubmitter:
     """Submit an existing deployed Job through an injected SDK client.
 
@@ -69,16 +87,30 @@ class DatabricksJobSubmitter:
     def submit(self, config: SuiteConfig, *, request_id: str):
         _request_id(request_id)
         config = SuiteConfig.model_validate(config.model_dump(exclude_none=True))
-        path = self.config_publisher(config)
-        response = self.client.jobs.run_now(
-            job_id=self.job_id,
-            idempotency_token=request_id,
-            job_parameters={"config_path": path, "config_hash": config.fingerprint},
+        path = _step(
+            "Publishing the suite snapshot to the artifact Volume failed. The submitting "
+            "identity needs USE CATALOG, USE SCHEMA, READ VOLUME and WRITE VOLUME on the "
+            "artifact Volume. No Job was started.",
+            lambda: self.config_publisher(config),
+        )
+        response = _step(
+            f"Starting Job {self.job_id} failed. The submitting identity needs CAN_MANAGE_RUN "
+            "on the Job. No run was confirmed; retrying is safe because the request reuses "
+            "its idempotency token.",
+            lambda: self.client.jobs.run_now(
+                job_id=self.job_id,
+                idempotency_token=request_id,
+                job_parameters={"config_path": path, "config_hash": config.fingerprint},
+            ),
         )
         if response.run_id is None:
             raise ValueError("Jobs API returned no run ID")
         handle = RunHandle("databricks-jobs", str(response.run_id))
-        run = self._run(handle)
+        run = _step(
+            f"Job run {response.run_id} was started, but reading it back failed. Check the "
+            f"run in Databricks Jobs before submitting again.",
+            lambda: self._run(handle),
+        )
         parameters = {p.name: p.value for p in (run.job_parameters or [])}
         if parameters.get("config_hash") != config.fingerprint:
             raise ValueError("Submission token belongs to a different configuration")

@@ -90,7 +90,7 @@ def test_other_principal_and_unavailable_acl_never_grant_access():
         raise PermissionError("ACL cannot be read")
 
     authorize.client.permissions.get = unavailable
-    with pytest.raises(PermissionError):
+    with pytest.raises(ValueError, match="Grant the App's service principal CAN_MANAGE"):
         authorize("manage")
 
 
