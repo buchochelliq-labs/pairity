@@ -10,6 +10,63 @@ from pairity.config import SuiteConfig
 from pairity.delta_storage import DeltaResultStore
 
 
+def verify_features(report, run_id, expected, test_id, get):
+    """Scoping, SQL sources and nested/decimal comparators ran with recorded provenance."""
+    from pairity.sql_guard import query_hash
+
+    config = SuiteConfig.model_validate(report["configuration"])
+    if (
+        report["run_id"] != run_id
+        or report["config_hash"] != config.fingerprint
+        or report["suite"] != "tuva-features"
+        or report["status"] != "failed"
+    ):
+        raise ValueError("Features report identity or status mismatch")
+    if {p["pair_id"] for p in report["pairs"]} != set(expected) or len(report["pairs"]) != len(
+        expected
+    ):
+        raise ValueError("Incomplete features coverage")
+    prefix = f"{get('catalog')}.{get('schema')}.{test_id}_"
+    configured = {p.id: p for p in config.pairs}
+    for pair in report["pairs"]:
+        wanted = expected[pair["pair_id"]]
+        if pair["status"] != wanted["status"] or pair["counts"] != wanted["counts"]:
+            raise ValueError("Unexpected features outcome: " + pair["pair_id"])
+        if "column_changes" in wanted and pair["column_changes"] != wanted["column_changes"]:
+            raise ValueError("Unexpected column changes: " + pair["pair_id"])
+        chosen = {c["column"]: c["comparator"] for c in pair["comparators"]}
+        if chosen != wanted["comparators"]:
+            raise ValueError("Unexpected comparator selection: " + pair["pair_id"])
+        for side, variant in (("baseline", "baseline"), ("candidate", "changed")):
+            source = getattr(configured[pair["pair_id"]], side)
+            observed = pair["inputs"][side]
+            table = prefix + variant + "_core__medical_claim"
+            if not observed["snapshot_pinned"]:
+                raise ValueError("Features input was not pinned")
+            if source.kind == "table":
+                # Serverless preparation resolved as_of to the version created by setup.
+                if (
+                    observed["table"] != table
+                    or observed["version"] != 0
+                    or source.version != 0
+                    or not source.as_of
+                    or observed.get("as_of") != source.as_of
+                    or observed.get("filters")
+                    != [f.model_dump(exclude_none=True) for f in source.where]
+                ):
+                    raise ValueError("Scoped input provenance mismatch")
+            else:
+                leaves = observed.get("leaves", [])
+                if (
+                    observed["table"] != "sql"
+                    or [(leaf["table"], leaf["version"]) for leaf in leaves] != [(table, 0)]
+                    or observed.get("queries")
+                    != [{"query_sha256": query_hash(source.query), "parameters": {"min_line": 1}}]
+                ):
+                    raise ValueError("SQL source provenance mismatch")
+    return report
+
+
 def verify(spark, dbutils):
     get = dbutils.widgets.get
     test_id = get("test_id")
@@ -70,9 +127,16 @@ def verify(spark, dbutils):
         if report["status"] != ("passed" if variant == "identical" else "failed"):
             raise ValueError("Unexpected suite status")
         reports[variant] = report
+    run_id = get("features_run_id")
+    if not run_id.isdigit():
+        raise ValueError("Expected a numeric features Job run ID")
+    features = json.loads((Path(get("fixture_root")) / "expected-features.json").read_text())
+    reports["features"] = verify_features(
+        store.load("job:" + run_id)["report"], "job:" + run_id, features, test_id, get
+    )
     path = get("artifact_root").rstrip("/") + "/smoke/" + test_id + "/verified-results.json"
     WorkspaceClient().files.upload(path, io.BytesIO(json.dumps(reports).encode()), overwrite=False)
-    print("Both Tuva suite reports verified against the committed expected counts")
+    print("All three Tuva suite reports verified against the committed expectations")
 
 
 if __name__ == "__main__":

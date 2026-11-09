@@ -17,7 +17,9 @@ def setup(spark, dbutils):
         raise ValueError("Use a GitHub Actions run/attempt test ID")
     root = Path(get("fixture_root"))
     loader = runpy.run_path(str(root / "load.py"))["load_fixture"]
-    configs = loader(spark, get("catalog"), get("schema"), root=root, table_prefix=test_id)
+    configs = loader(
+        spark, get("catalog"), get("schema"), root=root, table_prefix=test_id, pin_as_of=True
+    )
     DeltaResultStore(spark, get("result_table")).initialize()
     directory = get("artifact_root").rstrip("/") + "/smoke/" + test_id
     client = WorkspaceClient()

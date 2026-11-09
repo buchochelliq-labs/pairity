@@ -253,6 +253,12 @@ class Workbench:
                     pair.keys = resolve_keys(pair, self.metadata)
                 except MissingKeys as exc:
                     raise ValueError(f"Supply primary keys for {pair.id}: {exc}") from exc
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Primary-key lookup for pair {pair.id} failed; reading declared keys "
+                        "needs USE CATALOG on each source catalog (information_schema). Supply "
+                        f"explicit keys to skip the lookup. No Job was submitted. Details: {exc}"
+                    ) from exc
         if self.submitter is None:
             raise ValueError("No submission backend configured")
         handle = self.submitter.submit(config, request_id=request_id)

@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "suite": "tuva-features",
+  "templates": {},
+  "defaults": {
+    "column_policy": "strict",
+    "implicit_casts": true,
+    "null_safe": true,
+    "schema_policy": "strict",
+    "exclude_columns": [],
+    "column_rules": {},
+    "max_changed_rows": 0,
+    "max_missing_rows": 0,
+    "max_extra_rows": 0,
+    "allow_key_only": false
+  },
+  "execution": {
+    "max_parallel_pairs": 2
+  },
+  "pairs": [
+    {
+      "id": "scoped_medical_claim",
+      "baseline": {
+        "kind": "table",
+        "table": "workspace.pairity_test.tuva_baseline_core__medical_claim",
+        "where": [
+          {
+            "column": "medical_claim_id",
+            "op": "not_in",
+            "value": [
+              "MEDICAL-01-002",
+              "MEDICAL-EXTRA-005"
+            ]
+          },
+          {
+            "column": "claim_line_number",
+            "op": ">=",
+            "value": 1
+          }
+        ]
+      },
+      "candidate": {
+        "kind": "table",
+        "table": "workspace.pairity_test.tuva_changed_core__medical_claim",
+        "where": [
+          {
+            "column": "medical_claim_id",
+            "op": "not_in",
+            "value": [
+              "MEDICAL-01-002",
+              "MEDICAL-EXTRA-005"
+            ]
+          },
+          {
+            "column": "claim_line_number",
+            "op": ">=",
+            "value": 1
+          }
+        ]
+      },
+      "keys": [
+        {
+          "baseline": "medical_claim_id",
+          "candidate": "medical_claim_id"
+        }
+      ],
+      "columns": [],
+      "compare": {
+        "exclude_columns": [
+          "paid_date",
+          "claim_start_date"
+        ],
+        "column_rules": {
+          "paid_amount": {
+            "absolute_tolerance": 30.0
+          },
+          "allowed_amount": {
+            "absolute_tolerance": 30.0
+          }
+        }
+      },
+      "tags": [],
+      "enabled": true
+    },
+    {
+      "id": "sql_nested_medical_claim",
+      "baseline": {
+        "kind": "sql",
+        "query": "SELECT medical_claim_id, named_struct('paid', paid_amount, 'allowed', allowed_amount) AS amounts, map('payer', payer, 'plan', plan) AS labels, array(payer, plan, data_source) AS tags FROM {{claims}} WHERE claim_line_number >= :min_line",
+        "inputs": {
+          "claims": "workspace.pairity_test.tuva_baseline_core__medical_claim"
+        },
+        "parameters": {
+          "min_line": 1
+        }
+      },
+      "candidate": {
+        "kind": "sql",
+        "query": "SELECT medical_claim_id, named_struct('paid', paid_amount, 'allowed', allowed_amount) AS amounts, map('plan', plan, 'payer', payer) AS labels, array(data_source, plan, payer) AS tags FROM {{claims}} WHERE claim_line_number >= :min_line",
+        "inputs": {
+          "claims": "workspace.pairity_test.tuva_changed_core__medical_claim"
+        },
+        "parameters": {
+          "min_line": 1
+        }
+      },
+      "keys": [
+        {
+          "baseline": "medical_claim_id",
+          "candidate": "medical_claim_id"
+        }
+      ],
+      "columns": [],
+      "compare": {
+        "column_rules": {
+          "tags": {
+            "array_order": "unordered"
+          }
+        }
+      },
+      "tags": [],
+      "enabled": true
+    }
+  ]
+}

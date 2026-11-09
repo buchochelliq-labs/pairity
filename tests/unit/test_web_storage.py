@@ -202,3 +202,46 @@ def test_authorization_cache_is_request_scoped():
     assert len(calls) == 2
     source_authorizer(query)(suite())
     assert len(calls) == 4
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            "SQL check failed (FAILED; BAD_REQUEST; SQLSTATE 42501; INSUFFICIENT_PERMISSIONS).",
+            "You cannot read source table cat.sch.orders. Ask its owner to grant you USE CATALOG "
+            "on cat, USE SCHEMA on cat.sch and SELECT on cat.sch.orders",
+        ),
+        (
+            "SQL check failed (FAILED; BAD_REQUEST; SQLSTATE 42P01; TABLE_OR_VIEW_NOT_FOUND).",
+            "Source check for cat.sch.orders failed; no Job was submitted.",
+        ),
+    ],
+)
+def test_refused_source_checks_name_the_table_and_required_grants(message, expected):
+    from pairity.config import SuiteConfig
+    from pairity.web.storage import source_authorizer
+
+    def query(sql, params):
+        if "cat`.`sch`.`orders" in sql:
+            raise ValueError(message)
+        return []
+
+    config = SuiteConfig.model_validate(
+        {
+            "schema_version": 1,
+            "suite": "s",
+            "pairs": [
+                {
+                    "id": "p",
+                    "baseline": "cat.sch.orders",
+                    "candidate": "cat.dev.orders",
+                    "keys": [{"baseline": "id", "candidate": "id"}],
+                }
+            ],
+        }
+    )
+    with pytest.raises(ValueError) as error:
+        source_authorizer(query)(config)
+    assert str(error.value).startswith(expected)
+    assert message in str(error.value)
