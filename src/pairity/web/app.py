@@ -1,5 +1,6 @@
 """Thin FastAPI endpoints over Pairity's shared services."""
 
+import logging
 import os
 from pathlib import Path
 from typing import Literal
@@ -53,6 +54,9 @@ class Submit(Body):
     tags: list[str] | None = None
 
 
+logger = logging.getLogger(__name__)
+
+
 def create_app(service_factory=None, *, mode="databricks", static_dir=None):
     if mode not in {"databricks", "local"}:
         raise ValueError("Unknown application mode")
@@ -100,8 +104,14 @@ def create_app(service_factory=None, *, mode="databricks", static_dir=None):
 
     @app.exception_handler(Exception)
     async def failed(request, exc):
+        # Unexpected errors keep a generic response, but the App log now has the cause.
+        logger.exception("Unhandled error on %s %s", request.method, request.url.path)
         return JSONResponse(
-            {"detail": "Operation failed; check app logs and resource permissions"}, status_code=500
+            {
+                "detail": f"Operation failed ({type(exc).__name__}); check the App logs "
+                "and resource permissions"
+            },
+            status_code=500,
         )
 
     def context(request: Request):

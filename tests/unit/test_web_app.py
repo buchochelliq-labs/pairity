@@ -162,3 +162,29 @@ def test_suite_names_with_slashes_and_invalid_request_redaction(tmp_path):
     invalid = c.post("/api/v1/validate", json={"secret": "do-not-echo"}, headers=headers)
     assert invalid.status_code == 422
     assert "do-not-echo" not in invalid.text
+
+
+def test_unexpected_errors_are_logged_and_name_the_exception_type(tmp_path, caplog):
+    import logging
+    from types import SimpleNamespace
+
+    from pairity.web.app import create_app
+
+    class PermissionDenied(Exception):
+        pass
+
+    def fail(*args, **kwargs):
+        raise PermissionDenied("App principal cannot read job permissions")
+
+    service = SimpleNamespace(list_suites=fail)
+    client = TestClient(
+        create_app(lambda request: ("tester", service), mode="local"), raise_server_exceptions=False
+    )
+    with caplog.at_level(logging.ERROR, logger="pairity.web.app"):
+        response = client.get("/api/v1/suites")
+    assert response.status_code == 500
+    assert response.json()["detail"] == (
+        "Operation failed (PermissionDenied); check the App logs and resource permissions"
+    )
+    assert "Unhandled error on GET /api/v1/suites" in caplog.text
+    assert "App principal cannot read job permissions" in caplog.text

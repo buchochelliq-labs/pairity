@@ -214,6 +214,13 @@ when available. Use that ID in SQL query history for the full error. App logs re
 those diagnostic fields without raw SQL, provider messages or data values. A failed
 cancellation is reported as unconfirmed, never as a successful cancellation.
 
+**Submission steps that run as the App.** After your source checks pass, the App's service principal:
+1. reads the Job's access control list to check your Job permission (it needs `CAN_MANAGE` on the Job to read it);
+2. uploads the suite snapshot to the artifact Volume (`USE CATALOG`, `USE SCHEMA`, `READ VOLUME`, `WRITE VOLUME`);
+3. starts the Job (`CAN_MANAGE_RUN`) and reads the run back.
+
+A failure names its step and the service principal. It also says whether nothing was started, or whether a run was started and should be checked in Databricks Jobs before you resubmit. Unexpected errors return their exception type and are logged with a traceback in the App's logs.
+
 **Which identity needs source access.** Two identities read the source tables, and both need `USE CATALOG`, `USE SCHEMA` and `SELECT`, directly or through a group:
 
 1. **The signed-in workbench user.** Pre-submission checks, run history and incident downloads run as the person using the App: the App uses the access token Databricks forwards for that user, never the App's own service principal. A refused check names this user and the table.
