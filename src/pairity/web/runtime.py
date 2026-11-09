@@ -159,6 +159,6 @@ def service_for_request(request):
         discovery=UnityCatalogDiscovery(query, metadata),
         submitter=submitter,
         results=SqlResultReader(query, os.environ["PAIRITY_RESULT_TABLE"]),
-        authorize_sources=source_authorizer(query),
+        authorize_sources=source_authorizer(query, user),
         artifacts=artifacts,
     )

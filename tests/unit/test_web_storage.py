@@ -209,12 +209,14 @@ def test_authorization_cache_is_request_scoped():
     [
         (
             "SQL check failed (FAILED; BAD_REQUEST; SQLSTATE 42501; INSUFFICIENT_PERMISSIONS).",
-            "You cannot read source table cat.sch.orders. Ask its owner to grant you USE CATALOG "
+            "You cannot read source table cat.sch.orders. Ask its owner to grant your "
+            "Databricks user (alice@example.com), directly or through a group, USE CATALOG "
             "on cat, USE SCHEMA on cat.sch and SELECT on cat.sch.orders",
         ),
         (
             "SQL check failed (FAILED; BAD_REQUEST; SQLSTATE 42P01; TABLE_OR_VIEW_NOT_FOUND).",
-            "Source table cat.sch.orders was not found, or you have no privileges on it.",
+            "Source table cat.sch.orders was not found, or your Databricks user "
+            "(alice@example.com) has no privileges on it.",
         ),
     ],
 )
@@ -242,6 +244,6 @@ def test_refused_source_checks_name_the_table_and_required_grants(message, expec
         }
     )
     with pytest.raises(ValueError) as error:
-        source_authorizer(query)(config)
+        source_authorizer(query, "alice@example.com")(config)
     assert str(error.value).startswith(expected)
     assert message in str(error.value)
