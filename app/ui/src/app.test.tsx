@@ -179,6 +179,36 @@ describe("workbench workflow", () => {
     expect(status.textContent).toContain("catalog.baseline.customers and catalog.candidate.customers");
     expect(calls.filter(c => c.init.method === "PUT" || c.path.endsWith("/runs"))).toHaveLength(0);
   });
+  it("runs a selected real pair even when an unselected pair still uses example tables", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.queryByText("Working…")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Configurations" }));
+    const mixed = {
+      ...cfg,
+      pairs: [
+        ...cfg.pairs,
+        {
+          id: "starter",
+          baseline: "catalog.baseline.customers",
+          candidate: "catalog.candidate.customers",
+          keys: [{ baseline: "id", candidate: "id" }],
+          tags: [],
+          enabled: true,
+        },
+      ],
+    };
+    fireEvent.change(screen.getByLabelText("Configuration source"), {
+      target: { value: JSON.stringify(mixed) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save & run/ }));
+    await screen.findByText(/Unable to start analysis: replace the example tables/);
+    expect(calls.filter(c => c.path.endsWith("/runs"))).toHaveLength(0);
+    fireEvent.click(screen.getByLabelText(cfg.pairs[0].id));
+    fireEvent.click(screen.getByRole("button", { name: /Save & run selected pairs/ }));
+    await screen.findByText("Row counts unavailable for this comparison.");
+    const request = calls.find(c => c.path.endsWith("/runs"));
+    expect(request.body.pair_ids).toEqual([cfg.pairs[0].id]);
+  });
   it("saves changed YAML before running the newly returned revision and selected tags", async () => {
     saved = cfg;
     await editor();
