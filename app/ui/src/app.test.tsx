@@ -170,6 +170,15 @@ describe("workbench workflow", () => {
     expect(writes[1].body.revision).toBe(1);
     expect(saved.pairs[0].baseline).toBe("a.b.c");
   });
+  it("refuses to run the starter suite's example tables without saving or submitting", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.queryByText("Working…")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Configurations" }));
+    fireEvent.click(screen.getByRole("button", { name: /Save & run/ }));
+    const status = await screen.findByText(/Unable to start analysis: replace the example tables/);
+    expect(status.textContent).toContain("catalog.baseline.customers and catalog.candidate.customers");
+    expect(calls.filter(c => c.init.method === "PUT" || c.path.endsWith("/runs"))).toHaveLength(0);
+  });
   it("saves changed YAML before running the newly returned revision and selected tags", async () => {
     saved = cfg;
     await editor();

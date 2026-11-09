@@ -214,7 +214,7 @@ def test_authorization_cache_is_request_scoped():
         ),
         (
             "SQL check failed (FAILED; BAD_REQUEST; SQLSTATE 42P01; TABLE_OR_VIEW_NOT_FOUND).",
-            "Source check for cat.sch.orders failed; no Job was submitted.",
+            "Source table cat.sch.orders was not found, or you have no privileges on it.",
         ),
     ],
 )
